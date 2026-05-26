@@ -18,94 +18,59 @@ library(dplyr)
 library(ggplot2)
 library(tidyr)
 
-# Load cleaned survey data
 all_data <- readRDS("cleaned_survey_data.rds")
 
-# Robustness levers
-# apply_curtin_truncation: TRUE applies +/- 95% truncation following Curtin (1996)
-# use_modern_beta_period:  TRUE uses 1982-present for beta estimation; FALSE uses 1982-1995
+# toggle these for robustness checks
 apply_curtin_truncation <- TRUE
 use_modern_beta_period  <- TRUE
 ```
 
 # Categorical Harmonization (Pre-1978)
 
-To ensure longitudinal consistency, we harmonize the pre-1978 response categories of
-`Categorical_Infl_Exp_YR` with the standard post-1978 structure. The early survey waves
-included two ambiguous categories — "Stay the same or go up" and "Stay the same or go down" —
-which are mapped to clear directional responses to align with the modern two-stage question format.
+Pre-1978 surveys used a slightly different response scale. Categories 2 ("same or up")
+and 4 ("same or down") don't exist post-1978, so we recode them to the nearest
+directional equivalent before doing anything else.
 
-**Pre-1978 response categories:**
-
-| Code | Label |
-|------|-------|
-| 1 | Go up |
-| 2 | Will stay the same or go up |
-| 3 | Same |
-| 4 | Will stay the same or go down |
-| 5 | Go down |
-| 8 | Don't know |
-| 9 | NA |
-
-**Post-1978 response categories:**
-
-| Code | Label |
-|------|-------|
-| 1 | Go up |
-| 2 | Go up (at same rate) |
-| 3 | Same |
-| 5 | Go down |
-| 8 | Don't know |
-| 9 | NA |
-
-```{r categorical-harmonization}
+```{r}
 all_data <- all_data %>%
   mutate(
     Categorical_Infl_Exp_YR = case_when(
-      year < 1978 & Categorical_Infl_Exp_YR == 2 ~ 1,  # "same or up" -> "up"
-      year < 1978 & Categorical_Infl_Exp_YR == 4 ~ 5,  # "same or down" -> "down"
-      TRUE                                        ~ as.numeric(Categorical_Infl_Exp_YR)
+      year < 1978 & Categorical_Infl_Exp_YR == 2 ~ 1,
+      year < 1978 & Categorical_Infl_Exp_YR == 4 ~ 5,
+      TRUE ~ as.numeric(Categorical_Infl_Exp_YR)
     )
   )
 ```
 
-# Outlier Truncation (Curtin 1996)
+# Outlier Truncation
 
-Since Malmendier & Nagel (2016) do not explicitly specify outlier treatment, we implement
-the `apply_curtin_truncation` lever as a robustness check. When enabled, numerical
-expectations are winsorized at ±95%, following Curtin (1996).
+M&N (2016) don't explicitly mention truncation, so this is implemented as an optional
+robustness check via the `apply_curtin_truncation` flag above. Curtin (1996) suggests
+capping at ±95%.
 
-```{r outlier-truncation}
+```{r}
 if (apply_curtin_truncation) {
   all_data <- all_data %>%
-    mutate(
-      Numerical_Infl_Exp_YR = pmin(pmax(Numerical_Infl_Exp_YR, -95), 95)
-    )
+    mutate(Numerical_Infl_Exp_YR = pmin(pmax(Numerical_Infl_Exp_YR, -95), 95))
 }
 ```
 
 # Distributional Imputation of Missing Numerical Values
 
-To address missing quantitative price expectations (`Numerical_Infl_Exp_YR`), we apply
-the distributional imputation method of Curtin (1996). Respondents who provided a
-directional response (Up/Down) but no quantity receive imputed values sampled from the
-empirical distribution of observed responses within the same survey period and direction cell.
+Following Curtin (1996): respondents who gave a direction (up/down) but no number
+get imputed by sampling from others in the same period + direction cell.
 
-```{r distributional-imputation}
+```{r}
 all_data <- all_data %>%
   group_by(year, quarter, Categorical_Infl_Exp_YR) %>%
   mutate(
     Numerical_Infl_Exp_YR = {
       vals <- Numerical_Infl_Exp_YR
-      # Only impute for directional responders (Up = 1/2, Down = 5)
       if (unique(Categorical_Infl_Exp_YR) %in% c(1, 2, 5)) {
-        missing_idx   <- is.na(vals)
-        observed_vals <- vals[!missing_idx]
-        if (any(missing_idx) && length(observed_vals) > 0) {
-          vals[missing_idx] <- sample(observed_vals,
-                                      size    = sum(missing_idx),
-                                      replace = TRUE)
-        }
+        miss <- is.na(vals)
+        obs  <- vals[!miss]
+        if (any(miss) && length(obs) > 0)
+          vals[miss] <- sample(obs, size = sum(miss), replace = TRUE)
       }
       vals
     }
@@ -113,97 +78,72 @@ all_data <- all_data %>%
   ungroup()
 ```
 
-# Imputation of Expected Price Declines (Pre-1980)
+# Pre-1980: Fixed Value for Expected Declines
 
-Prior to February 1980, the survey did not ask respondents for the magnitude of expected
-price declines, as such expectations were historically rare (typically 1–2% of respondents).
-Following Curtin (1996), we assign a fixed value of **-3%** to all pre-1980 observations
-with a directional "down" response (Category 5).
+Before Feb 1980 the survey didn't ask for a magnitude when someone expected prices
+to go down (barely anyone did back then). We follow Curtin (1996) and assign -3%.
 
-```{r pre-1980-declines}
+```{r}
 all_data <- all_data %>%
   mutate(
     Numerical_Infl_Exp_YR = as.numeric(Numerical_Infl_Exp_YR),
     Numerical_Infl_Exp_YR = case_when(
-      (year < 1980 | (year == 1980 & quarter == 1)) &
-        Categorical_Infl_Exp_YR == 5 ~ -3,
-      TRUE                            ~ Numerical_Infl_Exp_YR
+      (year < 1980 | (year == 1980 & quarter == 1)) & Categorical_Infl_Exp_YR == 5 ~ -3,
+      TRUE ~ Numerical_Infl_Exp_YR
     )
   )
 ```
 
-# Bias Correction for "Same" Responses (Pre-1982)
+# Pre-1982: "Same" Response Bias Correction
 
-Prior to March 1982, many respondents interpreted "prices stay the same" as meaning
-the *inflation rate* stays constant rather than *zero price growth* (Curtin 1996). We
-implement a two-step stochastic correction to mitigate this downward bias.
+Curtin (1996) documents that before the March 1982 questionnaire change, many
+respondents interpreted "same" as "inflation rate stays the same" rather than
+"zero price growth". We correct for this stochastically:
 
-**Step 1: Estimate the period-specific error probability**
+1. Estimate $\beta$ from post-1982 data: $P(\text{error})_t \approx \beta \times \text{PctUp}_t$
+2. For each pre-1982 quarter, randomly reallocate that many "Same" responses to "Up"
+   and impute numerical values from the observed "Up" distribution in that quarter.
 
-We model the share of misinterpreted "Same" responses as proportional to the share
-of "Up" respondents in the same period:
-
-$$P(\text{Error})_t = \beta \times \text{PctUp}_t$$
-
-The coefficient $\beta \approx 0.007$ follows Curtin (1996) but is estimated on the
-full available post-1982 data when `use_modern_beta_period = TRUE`.
-
-**Step 2: Stochastic reallocation**
-
-For each pre-1982 quarter, the estimated number of misinterpreted responses is randomly
-reallocated from Category 3 ("Same") to Category 1 ("Up"). Imputed numerical values
-are drawn from the empirical distribution of observed "Up" responses in the same quarter.
-
-```{r pre-1982-bias-correction}
-# Estimate beta from post-1982 data
-if (use_modern_beta_period) {
-  beta_data <- all_data %>% filter(year >= 1982)
+```{r}
+beta_data <- if (use_modern_beta_period) {
+  all_data %>% filter(year >= 1982)
 } else {
-  beta_data <- all_data %>% filter(year >= 1982, year <= 1995)
+  all_data %>% filter(year >= 1982, year <= 1995)
 }
 
 period_shares <- beta_data %>%
   group_by(year, quarter) %>%
   summarise(
     pct_up   = mean(Categorical_Infl_Exp_YR %in% c(1, 2), na.rm = TRUE),
-    pct_same = mean(Categorical_Infl_Exp_YR == 3,          na.rm = TRUE),
+    pct_same = mean(Categorical_Infl_Exp_YR == 3, na.rm = TRUE),
     .groups  = "drop"
   ) %>%
   filter(pct_up > 0)
 
 beta_hat <- coef(lm(pct_same ~ 0 + pct_up, data = period_shares))["pct_up"]
-message(sprintf("Estimated beta: %.4f (Curtin 1996 reference: ~0.007)", beta_hat))
 
-# Apply stochastic reallocation to pre-1982 data
 set.seed(42)
 
-corrected_data <- all_data %>%
+all_data <- all_data %>%
   group_by(year, quarter) %>%
   group_modify(function(df, keys) {
 
-    if (keys$year >= 1982 | (keys$year == 1982 & keys$quarter >= 1)) {
-      return(df)
-    }
+    if (keys$year >= 1982) return(df)
 
-    pct_up <- mean(df$Categorical_Infl_Exp_YR %in% c(1, 2), na.rm = TRUE)
+    pct_up       <- mean(df$Categorical_Infl_Exp_YR %in% c(1, 2), na.rm = TRUE)
     n_reallocate <- round(beta_hat * pct_up * nrow(df))
-
-    same_idx <- which(df$Categorical_Infl_Exp_YR == 3)
-    up_vals  <- df$Numerical_Infl_Exp_YR[df$Categorical_Infl_Exp_YR %in% c(1, 2) &
-                                           !is.na(df$Numerical_Infl_Exp_YR)]
+    same_idx     <- which(df$Categorical_Infl_Exp_YR == 3)
+    up_vals      <- df$Numerical_Infl_Exp_YR[
+      df$Categorical_Infl_Exp_YR %in% c(1, 2) & !is.na(df$Numerical_Infl_Exp_YR)
+    ]
 
     if (n_reallocate > 0 && length(same_idx) >= n_reallocate && length(up_vals) > 0) {
-      selected_idx <- sample(same_idx, size = n_reallocate, replace = FALSE)
-      df$Categorical_Infl_Exp_YR[selected_idx]  <- 1
-      df$Numerical_Infl_Exp_YR[selected_idx]    <- sample(up_vals,
-                                                           size    = n_reallocate,
-                                                           replace = TRUE)
+      idx <- sample(same_idx, n_reallocate, replace = FALSE)
+      df$Categorical_Infl_Exp_YR[idx] <- 1
+      df$Numerical_Infl_Exp_YR[idx]   <- sample(up_vals, n_reallocate, replace = TRUE)
     }
 
     df
   }) %>%
   ungroup()
-
-all_data <- corrected_data
-message("Bias correction complete.")
 ```
