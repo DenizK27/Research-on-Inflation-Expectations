@@ -20,7 +20,7 @@ library(tidyr)
 
 all_data <- readRDS("cleaned_survey_data.rds")
 
-# toggle these for robustness checks
+# toggle for robustness checks
 apply_curtin_truncation <- TRUE
 use_modern_beta_period  <- TRUE
 ```
@@ -28,8 +28,7 @@ use_modern_beta_period  <- TRUE
 # Categorical Harmonization (Pre-1978)
 
 Pre-1978 surveys used a slightly different response scale. Categories 2 ("same or up")
-and 4 ("same or down") don't exist post-1978, so we recode them to the nearest
-directional equivalent before doing anything else.
+and 4 ("same or down") don't exist post-1978, so we recode them before doing anything else.
 
 ```{r}
 all_data <- all_data %>%
@@ -44,9 +43,8 @@ all_data <- all_data %>%
 
 # Outlier Truncation
 
-M&N (2016) don't explicitly mention truncation, so this is implemented as an optional
-robustness check via the `apply_curtin_truncation` flag above. Curtin (1996) suggests
-capping at ±95%.
+M&N (2016) don't explicitly mention truncation, so this is an optional robustness
+check. Curtin (1996) caps at +/-95%.
 
 ```{r}
 if (apply_curtin_truncation) {
@@ -55,10 +53,10 @@ if (apply_curtin_truncation) {
 }
 ```
 
-# Distributional Imputation of Missing Numerical Values
+# Distributional Imputation
 
-Following Curtin (1996): respondents who gave a direction (up/down) but no number
-get imputed by sampling from others in the same period + direction cell.
+Following Curtin (1996): respondents who gave a direction but no number get imputed
+by sampling from others in the same period + direction cell.
 
 ```{r}
 all_data <- all_data %>%
@@ -81,7 +79,7 @@ all_data <- all_data %>%
 # Pre-1980: Fixed Value for Expected Declines
 
 Before Feb 1980 the survey didn't ask for a magnitude when someone expected prices
-to go down (barely anyone did back then). We follow Curtin (1996) and assign -3%.
+to fall. Following Curtin (1996), we assign -3%.
 
 ```{r}
 all_data <- all_data %>%
@@ -96,13 +94,12 @@ all_data <- all_data %>%
 
 # Pre-1982: "Same" Response Bias Correction
 
-Curtin (1996) documents that before the March 1982 questionnaire change, many
-respondents interpreted "same" as "inflation rate stays the same" rather than
-"zero price growth". We correct for this stochastically:
+Curtin (1996) shows that before March 1982 many respondents read "same" as "inflation
+rate stays constant" rather than "zero growth". We correct stochastically:
 
 1. Estimate $\beta$ from post-1982 data: $P(\text{error})_t \approx \beta \times \text{PctUp}_t$
-2. For each pre-1982 quarter, randomly reallocate that many "Same" responses to "Up"
-   and impute numerical values from the observed "Up" distribution in that quarter.
+2. For each pre-1982 quarter, randomly move that many "Same" responses to "Up" and
+   draw numerical values from the observed "Up" distribution in the same quarter.
 
 ```{r}
 beta_data <- if (use_modern_beta_period) {
@@ -115,7 +112,7 @@ period_shares <- beta_data %>%
   group_by(year, quarter) %>%
   summarise(
     pct_up   = mean(Categorical_Infl_Exp_YR %in% c(1, 2), na.rm = TRUE),
-    pct_same = mean(Categorical_Infl_Exp_YR == 3, na.rm = TRUE),
+    pct_same = mean(Categorical_Infl_Exp_YR == 3,          na.rm = TRUE),
     .groups  = "drop"
   ) %>%
   filter(pct_up > 0)
