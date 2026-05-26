@@ -50,16 +50,16 @@ cohort_data <- regression_data %>%
   group_by(time_decimal, time_factor, age_group) %>%
   summarise(
     p_up        = mean(Categorical_Infl_Exp_YR %in% c(1, 2), na.rm = TRUE),
-    p_down      = mean(Categorical_Infl_Exp_YR == 5, na.rm = TRUE),
-    pi_measured = mean(Numerical_Infl_Exp_YR, na.rm = TRUE),
-    .groups = "drop"
+    p_down      = mean(Categorical_Infl_Exp_YR == 5,          na.rm = TRUE),
+    pi_measured = mean(Numerical_Infl_Exp_YR,                 na.rm = TRUE),
+    .groups     = "drop"
   )
 ```
 
 # Imputation
 
 Regress observed mean expectations on directional shares + time FE, then predict
-for all cohort-period cells (including those with no observed numerical response).
+for all cohort-period cells (including those without an observed numerical response).
 
 ```{r}
 training_data <- cohort_data %>%
@@ -86,7 +86,7 @@ if (nrow(training_data) > 10) {
 
 4-quarter MA by age group, following M&N Figure 1.
 
-```{r, fig.width=10, fig.height=6}
+```{r fig.width=10, fig.height=6}
 plot_data <- cohort_data %>%
   filter(!is.na(age_group)) %>%
   arrange(age_group, time_decimal) %>%
@@ -105,8 +105,5 @@ ggplot(plot_data, aes(x = time_decimal, y = smoothed, color = age_group)) +
     x = "Year", y = "Expected Inflation (%)", color = "Cohort"
   ) +
   theme_bw() +
-  theme(
-    legend.position  = "bottom",
-    panel.grid.minor = element_blank()
-  )
+  theme(legend.position = "bottom", panel.grid.minor = element_blank())
 ```
