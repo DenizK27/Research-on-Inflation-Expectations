@@ -21,23 +21,19 @@ library(tidyverse)
 library(zoo)
 ```
 
-# Data Preparation
+# Data
 
-Load the cleaned survey dataset and prepare variables for regression-based imputation.
-
-```{r data-preparation}
-# Load cleaned data
+```{r}
 all_data <- readRDS("cleaned_survey_data.rds")
 
-# Convert relevant columns to numeric and construct derived variables
 regression_data <- all_data %>%
   mutate(
-    Numerical_Infl_Exp_YR  = as.numeric(as.character(Numerical_Infl_Exp_YR)),
+    Numerical_Infl_Exp_YR   = as.numeric(as.character(Numerical_Infl_Exp_YR)),
     Categorical_Infl_Exp_YR = as.numeric(as.character(Categorical_Infl_Exp_YR)),
-    age                     = as.numeric(as.character(age)),
-    time_decimal            = year + (quarter - 1) / 4,
-    time_factor             = factor(year + (quarter - 1) / 4),
-    age_group               = case_when(
+    age          = as.numeric(as.character(age)),
+    time_decimal = year + (quarter - 1) / 4,
+    time_factor  = factor(year + (quarter - 1) / 4),
+    age_group    = case_when(
       age < 40              ~ "Young",
       age >= 40 & age <= 60 ~ "Middle",
       age > 60              ~ "Old",
@@ -47,92 +43,70 @@ regression_data <- all_data %>%
   filter(!is.na(age_group))
 ```
 
-# Cohort Aggregation
+# Cohort means
 
-Aggregate individual-level responses to cohort-level shares of directional expectations
-and mean numerical expectations per time period and age group.
-
-```{r cohort-aggregation}
+```{r}
 cohort_data <- regression_data %>%
   group_by(time_decimal, time_factor, age_group) %>%
   summarise(
-    p_up      = mean(Categorical_Infl_Exp_YR %in% c(1, 2), na.rm = TRUE),
-    p_down    = mean(Categorical_Infl_Exp_YR == 5,          na.rm = TRUE),
-    pi_measured = mean(Numerical_Infl_Exp_YR,               na.rm = TRUE),
-    .groups   = "drop"
+    p_up        = mean(Categorical_Infl_Exp_YR %in% c(1, 2), na.rm = TRUE),
+    p_down      = mean(Categorical_Infl_Exp_YR == 5, na.rm = TRUE),
+    pi_measured = mean(Numerical_Infl_Exp_YR, na.rm = TRUE),
+    .groups = "drop"
   )
 ```
 
-# Regression-Based Imputation
+# Imputation
 
-Estimate a linear model of mean numerical expectations on directional response shares
-and time fixed effects. Apply estimated coefficients to impute expectations for all
-cohort-period cells.
+Regress observed mean expectations on directional shares + time FE, then predict
+for all cohort-period cells (including those with no observed numerical response).
 
-```{r imputation}
-# Restrict training set to periods with observed numerical expectations
+```{r}
 training_data <- cohort_data %>%
   filter(!is.na(pi_measured)) %>%
   mutate(time_factor = droplevels(time_factor))
 
-n_training <- nrow(training_data)
-message("Training set size: ", n_training, " cohort-period observations")
-
-if (n_training > 10) {
+if (nrow(training_data) > 10) {
 
   model <- lm(pi_measured ~ p_up + p_down + time_factor, data = training_data)
 
-  b_intercept <- coef(model)["(Intercept)"]
-  b_up        <- coef(model)["p_up"]
-  b_down      <- coef(model)["p_down"]
-
   cohort_data <- cohort_data %>%
     mutate(
-      imputed_inflation = b_intercept + b_up * p_up + b_down * p_down
+      imputed_inflation = coef(model)["(Intercept)"] +
+                          coef(model)["p_up"]   * p_up +
+                          coef(model)["p_down"] * p_down
     )
 
-  message("Imputation complete.")
-  head(cohort_data)
-
 } else {
-  stop("Insufficient training data for imputation. Check input dataset.")
+  stop("Not enough training data.")
 }
 ```
 
-# Visualisation
+# Plot
 
-Plot 4-quarter moving-average imputed inflation expectations by age cohort,
-following the style of Malmendier & Nagel (2016, Figure 1).
+4-quarter MA by age group, following M&N Figure 1.
 
-```{r visualisation, fig.width=10, fig.height=6}
+```{r, fig.width=10, fig.height=6}
 plot_data <- cohort_data %>%
   filter(!is.na(age_group)) %>%
   arrange(age_group, time_decimal) %>%
   group_by(age_group) %>%
-  mutate(
-    smoothed_inflation = rollmean(imputed_inflation, k = 4, fill = NA, align = "right")
-  ) %>%
+  mutate(smoothed = rollmean(imputed_inflation, k = 4, fill = NA, align = "right")) %>%
   ungroup()
 
-ggplot(plot_data, aes(x = time_decimal, y = smoothed_inflation, color = age_group)) +
+ggplot(plot_data, aes(x = time_decimal, y = smoothed, color = age_group)) +
   geom_line(linewidth = 1.2) +
-  scale_color_manual(
-    values = c("Young" = "#E41A1C", "Middle" = "#377EB8", "Old" = "#4DAF4A")
-  ) +
+  scale_color_manual(values = c("Young" = "#E41A1C", "Middle" = "#377EB8", "Old" = "#4DAF4A")) +
   scale_x_continuous(breaks = seq(1950, 2030, 10), expand = c(0, 0)) +
   scale_y_continuous(labels = function(x) paste0(x, "%")) +
   labs(
     title    = "Figure 1: Mean Inflation Expectations by Age Group",
-    subtitle = "4-quarter moving average of imputed expectations",
-    x        = "Year",
-    y        = "Expected Inflation (%)",
-    color    = "Age Cohort"
+    subtitle = "4-quarter moving average, imputed",
+    x = "Year", y = "Expected Inflation (%)", color = "Cohort"
   ) +
   theme_bw() +
   theme(
-    plot.title      = element_text(face = "bold", size = 14),
-    plot.subtitle   = element_text(size = 11, color = "grey40"),
-    legend.position = "bottom",
+    legend.position  = "bottom",
     panel.grid.minor = element_blank()
   )
 ```
