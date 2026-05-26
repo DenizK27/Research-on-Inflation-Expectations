@@ -1,0 +1,2695 @@
+---
+title: "Documentation - Processing Inflation Expectation Survey Data from the Michigan Survey of Consumers Attitudes and Behavior"
+author: "Deniz Korkmaz" # Or original author
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true               
+    toc_float: true        
+    number_sections: true  
+    theme: united       
+    highlight: tango       
+    code_folding: hide      
+    toc_depth: 3            
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r link-helper-setup, include=FALSE}
+create_relative_file_link <- function(year, quarter, doc_id, base_folder = "Datasets") {
+  filename <- paste0(doc_id, "-0001-Codebook.pdf")
+  path <- file.path(base_folder, doc_id, filename)
+
+  encoded_path <- utils::URLencode(path)
+  encoded_path <- gsub("\\\\", "/", encoded_path)
+
+  link_text <- paste0("Documentation File (", filename, ") for ", year, "/Q", quarter, " (", doc_id, ")")
+  markdown_link <- paste0("#### [**", link_text, "**](", encoded_path, ")")
+
+  return(markdown_link)
+}
+```
+
+
+```{r}
+# 1. Load necessary libraries
+library(knitr)
+library(kableExtra)
+library(dplyr)
+library(ggplot2)
+
+# 2. Define the list of datasets in Nagel's data (YYYYQ format)
+nagel_datasets <- c(
+  "19534", "19572", "19582", "19591", "19601", "19602", "19611", "19614", 
+  "19621", "19622", "19623", "19624", "19631", "19632", "19633", "19634", 
+  "19641", "19651", "19654", "19661", "19663", "19671", "19672", "19691", "19701", 
+  "19711", "19731", "19732", "19733", "19734", "19741", "19742", "19743", 
+  "19744", "19751", "19752", "19753", "19754", "19762", 
+  "19763", "19764", "19771", "19772", "19773", "19774"
+)
+
+# 3. Create the main data frame with all your available data
+availability_df <- data.frame(
+  stringsAsFactors = FALSE,
+  Year = c("1953", "1955", "1957", "1958", "1959", "1960", "1960", "1961", "1961", "1961", "1962", "1962", "1962", "1962", "1963", "1963", "1964", "1965", "1965", "1966", "1966", "1967", "1967", "1968", "1969", "1970", "1971", "1973", "1973", "1973", "1973", "1974", "1974", "1974", "1974", "1975", "1975", "1975", "1975", "1976", "1976", "1976", "1976", "1977", "1977", "1977", "1977"),
+  Quarter = c("Q4", "Q1", "Q2", "Q2", "Q1", "Q1", "Q2", "Q1", "Q2", "Q4", "Q1", "Q2", "Q3", "Q4", "Q1", "Q3", "Q1", "Q1", "Q4", "Q1", "Q3", "Q1", "Q2", "Q1", "Q1", "Q1", "Q1", "Q1", "Q2", "Q3", "Q4", "Q1", "Q2", "Q3", "Q4", "Q1", "Q2", "Q3", "Q4", "Q2", "Q3", "Q4", "Q4", "Q1", "Q2", "Q3", "Q4"),
+  Document_ID = c("03634", "03600", "03602", "03631", "03618", "07440", "03633", "07441", "03629", "03628", "07442", "03637", "03627", "03626", "07443", "03622", "07444", "07445", "03621", "07446", "03620", "07447", "03619", "07448", "07449", "07450", "07451", "07473", "07475", "07476", "07525", "07477", "07523", "07478", "07524", "07479", "07480", "07481", "07482", "07544", "07545", "08723", "07543", "08724", "08725", "08726", "08727"),
+  File_Format = c(".txt", ".txt", ".dta", ".txt", ".txt", ".dta", ".txt", ".txt", ".txt", ".txt", ".txt", ".txt", ".txt", ".txt", ".txt", ".txt", ".dta", ".dta", ".txt", ".dta", ".txt", ".dta", ".txt", ".dta", ".dta", ".dta", ".dta", ".dta", ".dta", ".dta", ".dta", ".dta", ".dta", ".dta", ".dta", ".dta", ".dta", ".dta", ".dta", ".dta", ".dta", ".dta", ".txt", ".txt", ".dta", "dta", ".dta"),
+  Survey_Type = c("SCAB", "SCF", "SCAB", "SCAB", "SCF", "SCF", "SCAB", "SCF", "SCAB", "SCAB", "SCF", "SCAB", "SCAB", "SCAB", "SCF", "SCAB", "SCF", "SCF", "SCAB", "SCF", "SCAB", "SCF", "SCAB", "SCF", "SCF", "SCF", "SCF", "SCAB", "SCAB", "SCAB", "SCAB", "SCAB", "SCAB", "SCAB", "SCAB", "SCAB", "SCAB", "SCAB", "SCAB", "SCAB", "SCAB", "SCAB", "SCAB", "SCAB", "SCAB", "SCAB", "SCAB"),
+  Has_Age = c(TRUE, FALSE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, TRUE, TRUE, TRUE, TRUE, FALSE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE),
+  Has_Categorical = c(TRUE, FALSE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, TRUE, TRUE, TRUE, TRUE, FALSE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE),
+  Has_Numerical = c(TRUE, FALSE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, TRUE, FALSE, FALSE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE)
+)
+
+# 4. Add the two missing rows that are in Nagel's dataset
+missing_rows <- data.frame(
+  Year = c("1963", "1966"),
+  Quarter = c("Q2", "Q1"),
+  Document_ID = "Not available online",
+  File_Format = "N/A",
+  Survey_Type = "N/A",
+  Has_Age = FALSE,
+  Has_Categorical = FALSE,
+  Has_Numerical = FALSE
+)
+
+# Combine your data with the missing rows
+full_df <- bind_rows(availability_df, missing_rows)
+
+# 5. Prepare the final table for display
+final_table_with_nagel <- full_df %>%
+  mutate(Nagel_ID = paste0(Year, gsub("Q", "", Quarter))) %>%
+  arrange(as.numeric(Year), Quarter) %>%
+  mutate(
+    `In Nagel's Dataset` = ifelse(Nagel_ID %in% nagel_datasets, "✓", "✗"),
+    `Has Age` = ifelse(Has_Age, "✓", "✗"),
+    `Has Categorical Exp.` = ifelse(Has_Categorical, "✓", "✗"),
+    `Has Numerical Exp.` = ifelse(Has_Numerical, "✓", "✗")
+  ) %>%
+  select(
+    `Year`, `Quarter`, `Document ID` = Document_ID, `File Format` = File_Format,
+    `Survey Type` = Survey_Type, `Has Age`, `Has Categorical Exp.`,
+    `Has Numerical Exp.`, `In Nagel's Dataset`
+  )
+
+# 6. Find the row numbers of the missing datasets to highlight them
+# CORRECTED SYNTAX: Using [["..."]] to safely access column name with spaces.
+rows_to_highlight <- which(final_table_with_nagel[["Document ID"]] == "Not available online")
+
+# 7. Create the final table using the robust kable() method
+kable(
+  final_table_with_nagel, 
+  caption = "<b>Overview of Survey Data Availability and Comparison with Nagel (2020)</b>", 
+  escape = FALSE,
+  align = c('l', 'c', 'l', 'c', 'c', 'c', 'c', 'c', 'c') 
+) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE) %>%
+  row_spec(rows_to_highlight, bold = TRUE, background = "#ECECEC")
+```
+
+
+
+# Introduction
+This document outlines the extraction and standardization of inflation expectation data from the Michigan Survey of Consumers Attitudes and Behavior and the Survey of Consumer Finances. First, it defines the relevant survey questions and the encoding of categorical and numerical responses. Second, it specifies the transformations applied to these variables to ensure comparability and interpretability across years. Third, it describes the type of the source files, and explains the extraction logic used for each. Finally, it merges all cleaned datasets into a standardized output and exports the result as both an Excel file and an R object with metadata.
+
+
+## Relevant Variable Definition. 
+
+The analysis focuses on inflation expectations and the respondent’s age. For this reason, three variables were extracted across all survey files The corresponding survey questions and their coded answer categories are defined below. Please note that for numerical inflation expectations, only positive price expectations are asked for "(IF WILL GO UP)".
+
+*`Categorical_Infl_Exp_YR`*
+During the next 12 months, do you think that prices in general will go up, or go down, or stay where they are now?
+
+1.  GO UP  
+2.  WILL STAY THE SAME OR GO UP 
+3.  SAME
+4.  WILL STAY THE SAME OR GO DOWN  
+5.  GO DOWN  
+8.  DON'T KNOW  
+9.  NA: R speaks only of hopes or wishes  
+
+<!-- Hier ,müsste 7. noch undocumented code sein! nur bei einigen jahren, nicht bei allen -->
+*`Numerical_Infl_Exp_YR`*
+(IF WILL GO UP) How large a price increase do you expect? Would you say that a year from now prices will be about 1 or 2 percent higher, or 5 percent, or closer to 10 percent higher than now, or what?
+
+1.  1–2%  
+3.  3%  
+4.  4%  
+5.  5%  
+6.  6–9%  
+7.  10% or more  
+8.  DK  
+9.  NA; "some"; "a little"; "a lot".
+
+*`age`*
+Age of respondent
+
+Code actual age (18-97) 
++ 97.  97 years or older  
++ 98.  DK
++ 99.  NA 
+
+While the core meaning of these questions remains identical, some variations in wording, response categories occur across in some survey files. Any deviations from the standard format are documented in the respective sections of the file. 
+
+## Data Structure and Documentation Overview
+
+The survey responses are stored in a combination of .dta and .txt files, comprising a total of 59 distinct datasets. Each dataset corresponds to a specific quarter of a specific year and is uniquely identified by a five-digit Document ID. Variable extraction was guided by the accompanying codebooks (PDF files), which document the survey questions, encoding of answers, and corresponding variable names. In addition, auxiliary files such as .do, .dtc, or other setup files were used when available to verify variable positions and ensure accurate extraction.
+
+Each dataset is represented by year, quarter, and Document ID. A link to the associated codebook is provided directly via a hyperlink.
+
+All datasets are organized within the top-level folder Datasets, which contains two subdirectories:
+
++ `Survey_of_Consumer_Finances`
++ `Survey_of_Consumer_Attitudes_and_Behavior`
+
+
+Each of these contains multiple subfolders named after their corresponding Document ID. These typically include:
+
++ The main codebook (PDF), containing the original survey questions and answer encodings 
++ The ICPSR codebook, listing variable names, value labels, frequencies, and column positions (for .txt files)
++ The raw data file (.dta or .txt)
++ Auxiliary files (.do, .dtc, etc.) used for parsing or clarification
++ Screenshots used during development to validate variable selection and position references
+
+Please note that this is only a list of all possible files. Not all of them are present in every folder. However, in each case, both the codebook and the raw data file were available.
+
+This document begins with a summary table outlining all processed files and comparing our compiled dataset to the one used by Nagel (2020). Our dataset includes two surveys not found in Nagel's, while theirs contains two surveys that were not publicly available online.
+
+# Transformation
+
+```{r, include = FALSE}
+library(haven)
+library(dplyr)
+library(purrr)
+library(writexl)
+```
+
+## Global Transformation Mode perc_transform_mode`
+
+A global variable, `perc_transform_mode`, is defined to control how numerical intervals of inflation expectations are converted into single point values. Three different specifications are used: 
+
++ the lower bound, which takes the minimum value of the inflation expectation interval.
++ the mean, which uses the average of the lower and upper bounds for that interval.
++ the upper bound, which takes the maximum value of the interval.
+
+In cases where only a lower limit is specified (for example, “10% or more”), the lower bound was consistently used throughout the extraction process, as no reasonable basis for an alternative transformation was available. It is important to note that the structure of the inflation expectation intervals varies across years. In some years, inflation expectations were reported directly as integer values up to 97%, in others differing intervals were used.
+
+```{r}
+perc_transform_mode <- "mean" #alternatively use "upper" or "lower"
+```
+
+## Transformations of Variables
+
+Throughout this document, the extracted variables `Numerical_Infl_Exp_YR`, `Categorical_Infl_Exp_YR`, and `age` require transformation to be directly interpretable. Although the necessary transformations vary across quarters and require specific adjustments, the majority of files follow a common pattern. For this reason, a general transformation function is defined. Files that do not adhere to this common pattern will be handled individually, without a dedicated function.
+
+### Transformation of `Numerical_Infl_Exp_YR`
+For Numerical_Infl_Exp_YR, the encoded values should be transformed appropriately based on the global transformation mode corresponding to their interval. The encodings which need to be transformed are the following:
+
++ "1" = 1%-2%
++ "6" = 6%-9%
++ "7" = 10% or more
+
+For the Intervals the transformations based on the `perc_transform_mode` are conducted. For the encoding "7" the lower limit (10%) is used as transformation for all specifications of `perc_transform_mode`. 
+
+Additionally it is required to transform all encodings into NA, which do not provide any information for inflation expectation. For `Numerical_Infl_Exp_YR` these are the encodings "0", "8" and "9", which have the following interpretation. 
+
++ "0" = The value “0” is used as a placeholder when there are two groups (X/Y) surveyed separately, each with their own questions in the codebook. In this case, “0” is encoded for the question that does not apply to a respondent from the other group. However, not all files using this transformation include a “0” encoding / involve multiple groups. Nevertheless, the transformation still applies, as these files contain no answer option associated with the value “0”.
+
++ "8" = Don't know. 
+
++ "9" = NA
+
+The resulting transformation is:
+```{r}
+primary_transform_numerical_infl_exp <- function(x) {
+  case_when(
+    is.na(x) ~ NA_character_,
+    
+    perc_transform_mode == "lower" & x == 1 ~ "1",
+    perc_transform_mode == "mean"  & x == 1 ~ "1.5",
+    perc_transform_mode == "upper" & x == 1 ~ "2",
+    
+    x %in% 2:5 ~ as.character(x),
+    
+    perc_transform_mode == "lower" & x == 6 ~ "6",
+    perc_transform_mode == "mean"  & x == 6 ~ "7.5",
+    perc_transform_mode == "upper" & x == 6 ~ "9",
+    
+    x == 7 ~ "10",
+    
+    x %in% c(0, 8, 9) ~ NA_character_,
+    
+    TRUE ~ "error"
+  )
+}
+```
+
+### Transformation of `Categorical_Infl_Exp_YR`
+
+In the majority of the documents, categorical inflation expectations are recorded following a coherent structure outlined before, ranging from 1 to 5. The typical structure is: 
+
+1. Will go up  
+2. Will stay the same or go up  
+3. Will stay the same  
+4. Will stay the same or go down  
+5. Will go down
+
+In some years, all five answer categories (1 to 5) are explicitly listed. In other years, however, only three answer options are provided: 1, 3, and 5. In these cases, the answers are also directly coded as 1, 3, and 5.
+
+As we will keep this coherent structure, we will only have to deal with the remaining encodings that do not provide information about the inflation expectation and transform them to NA. The remaining encodings have the same interpretation as for the transformation of the variable `Numerical_Infl_Exp_YR`.
+
+```{r}
+primary_transform_categorical_infl_exp <- function(x) {
+  case_when(
+    x %in% c(0, 8, 9) ~ NA_character_, #Kategorie 7 inkludieren!
+    is.na(x) ~ NA_character_,
+    x %in% 1:7 ~ as.character(x), #hier müsste es 1-5 sein! nicht 1-7!
+    TRUE ~ "error"
+  )
+}
+```
+
+### Transformation of the variable `age`
+
+In the majority of files, `age` is encoded as a continuous variable representing the respondent’s actual age (e.g., an encoding of 50 indicates an age of 50). Exceptions include the values 98 and 99, which represent “Don’t Know” (DK) and “Not Applicable” (NA), respectively. Additionally, the value 97 is used to indicate “97 or older” and is treated as the lower bound of this open-ended age interval.
+
+```{r}
+transformation_continuous_age <- function(x) {
+  case_when(
+    x %in% c(0, 98, 99) ~ NA_character_,
+    is.na(x) ~ NA_character_, # ADDED: This correctly handles NA values
+    x %in% 1:97 ~ as.character(x),
+    TRUE ~ "error"
+  )
+}
+```
+
+## Handling Deviations from the Standard Transformation Structure
+It is important to note that these transformations can be applied to the majority of surveys, but not to all. Some surveys, particularly older ones, show structural deviations. In certain cases, questions on inflation expectations, both numerical and categorical, are not included at all. In other cases, only the categorical version is available. Additionally, the variable `Categorical_Infl_Exp_YR` may not yet follow a consistent structure, and Numerical_Infl_Exp_YR may use different coding schemes, intervals, or even allow for negative values. Similarly, age is sometimes recorded in intervals and must be appropriately transformed by taking the midpoint of the respective range.
+
+In cases where the data deviates from the standard structure and the previously outlined transformations are not applicable, the processing will be handled manually.
+
+## Sanity Checks
+Sanity checks were implemented across all transformation functions. This applies to both the standard transformations used for most datasets and the file-specific transformations used when deviations occur.
+
+Each function defines the full set of valid input values. If a value outside this range is encountered, the output is set to "error" to indicate a potential extraction issue.
+
+## Variable Selection in the Presence of Multiple Candidates
+
+In some datasets, multiple variables in the codebook could plausibly represent the categorical or numerical inflation expectation, without a single clearly designated variable. In such cases, the first listed variable in the codebook was selected for extraction and transformation. All alternative candidates were documented in file-specific comments.
+
+These alternative variables were not used, as their exact meaning was often unclear. In several instances, they appear to refer to earlier quarters of the same year. However, those quarters are already represented by separate, dedicated files. A dedicated investigation of this issue was conducted in #### [**Duplicate Date Analysis**](../2804_Inflation/Analysis_Duplicate_Date.html), which concluded that the embedded segments contain invalid or inconsistent data and should therefore be excluded.
+
+# Processing .dta Files 
+This section outlines the extraction and transformation of survey data stored in .dta format where each file represents one quarterly survey wav
+
+1. Read the raw data using read_dta(). 
+2. Extract relevant variables (age, categorical and numerical inflation expectations).
+3. Apply transformations based on the previously outlined standardized function or file-specific mappings.
+4. Add metadata columns (year, quarter, document ID).
+
+The processing of .dta files follows a structured order. First, all Michigan Survey of Consumers Attitudes and Behavior files that use the standard transformation functions are processed. These are followed by survey waves from the Michigan Survey of Consumers Attitudes and Behavior the with structural deviations that require custom extraction or transformation logic. Next, files from the Survey of Consumer Finances are processed in the same way. First, those compatible with the standard functions are handled, then those requiring file-specific adjustments.
+
+## Processing the Michigan Survey of Consumers Attitudes and Behavior 
+
+### Files Using Standard Transformation Functions 
+
+#### [**1973/Q4 - 07525**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07525/07525-0001-Codebook.pdf)
+
+`r create_relative_file_link(1973, 4, "07525")`
+
++ The pages containing the inflation expectation questions is missing from the dictionary; however, the ICPSR codebook provides the necessary variables for extraction.
++ No additional variables for inflation expectations found
+
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1973_Q4 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07525/07525-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1973_Q4_subset <- data_1973_Q4 %>%
+  select(
+    age                     = V0028,
+    Categorical_Infl_Exp_YR = V0121,
+    Numerical_Infl_Exp_YR   = V0122
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1973_Q4_transformed <- data_1973_Q4_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR   = primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR)
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1973_Q4_final <- data_1973_Q4_transformed %>%
+  mutate(
+    year             = 1973,
+    quarter          = 4,
+    Document_id      = "07525",
+  )
+```
+
+
+#### [**1973/Q3 - 07476**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07476/07476-0001-Codebook.pdf)
+`r create_relative_file_link(1973, 3, "07476")`
+
++ Codebook indicates multiple variables related to numerical/categorical price expectations, the additional variables are V247/V248; V570/571; V728/V729
+
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1973_Q3 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07476/07476-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1973_Q3_subset <- data_1973_Q3 %>%
+  select(
+    age                     = V223,
+    Categorical_Infl_Exp_YR = V24,
+    Numerical_Infl_Exp_YR   = V25
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1973_Q3_transformed <- data_1973_Q3_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR   = primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR)
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1973_Q3_final <- data_1973_Q3_transformed %>%
+  mutate(
+    year             = 1973,
+    quarter          = 3,
+    Document_id      = "07476",
+  )
+```
+
+
+#### [**1973/Q1 - 07473**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07473/07473-0001-Codebook.pdf)
+`r create_relative_file_link(1973, 1, "07473")`
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1973_Q1 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07473/07473-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1973_Q1_subset <- data_1973_Q1 %>%
+  select(
+    age                     = V8,
+    Categorical_Infl_Exp_YR = V32,
+    Numerical_Infl_Exp_YR   = V33
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1973_Q1_transformed <- data_1973_Q1_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR   = primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR)
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1973_Q1_final <- data_1973_Q1_transformed %>%
+  mutate(
+    year             = 1973,
+    quarter          = 1,
+    Document_id      = "07473",
+  )
+```
+
+
+#### [**1973/Q2 - 07475**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07475/07475-0001-Codebook.pdf)
+`r create_relative_file_link(1973, 2, "07475")`
+
++ Multiple Variables for inflatione expectation: V186/187. It seems like that these variables are for Q1/1793, but Q1/1793 is already encoded above. 
+
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1973_Q2 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07475/07475-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1973_Q2_subset <- data_1973_Q2 %>%
+  select(
+    age                     = V162,
+    Categorical_Infl_Exp_YR = V24,
+    Numerical_Infl_Exp_YR   = V25
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1973_Q2_transformed <- data_1973_Q2_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR   = primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR)
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1973_Q2_final <- data_1973_Q2_transformed %>%
+  mutate(
+    year             = 1973,
+    quarter          = 2,
+    Document_id      = "07475",
+  )
+```
+ 
+
+#### [**1974/Q1 - 07477**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07477/07477-0001-Codebook.pdf)
+`r create_relative_file_link(1974, 1, "07477")`
+
++ Multiple Variables for inflation expectation: V315/V316;V638/V639;V853/854.
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1974_Q1 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07477/07477-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1974_Q1_subset <- data_1974_Q1 %>%
+  select(
+    age                     = V291,
+    Categorical_Infl_Exp_YR = V145,
+    Numerical_Infl_Exp_YR   = V146
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1974_Q1_transformed <- data_1974_Q1_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR   = primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR)
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1974_Q1_final <- data_1974_Q1_transformed %>%
+  mutate(
+    year             = 1974,
+    quarter          = 1,
+    Document_id      = "07477",
+  )
+```
+
+
+#### [**1974/Q2 - 07523**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07523/07523-0001-Codebook.pdf)
+`r create_relative_file_link(1974, 2, "07523")`
+
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1974_Q2 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07523/07523-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1974_Q2_subset <- data_1974_Q2 %>%
+  select(
+    age                     = V0069,
+    Categorical_Infl_Exp_YR = V0114,
+    Numerical_Infl_Exp_YR   = V0115
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1974_Q2_transformed <- data_1974_Q2_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR   = primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR)
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1974_Q2_final <- data_1974_Q2_transformed %>%
+  mutate(
+    year             = 1974,
+    quarter          = 2,
+    Document_id      = "07523",
+  )
+```
+
+
+#### [**1974/Q3 - 07478**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07478/07478-0001-Codebook.pdf)
+`r create_relative_file_link(1974, 3, "07478")`
+
++ Here alternative variables for the inflation expectations are also listed. It it not identifiable which variable to choose. The alternative variables are V323/V324;V498/V499 which also represent the numerical and categorical inflation expectation (see Codebook)
+
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1974_Q3 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07478/07478-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1974_Q3_subset <- data_1974_Q3 %>%
+  select(
+    age                     = V412,
+    Categorical_Infl_Exp_YR = V31,
+    Numerical_Infl_Exp_YR   = V32
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1974_Q3_transformed <- data_1974_Q3_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR   = primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR)
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1974_Q3_final <- data_1974_Q3_transformed %>%
+  mutate(
+    year             = 1974,
+    quarter          = 3,
+    Document_id      = "07478",
+  )
+```
+
+
+#### [**1975/Q1 - 07479**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07479/07479-0001-Codebook.pdf)
+`r create_relative_file_link(1975, 1, "07479")`
+
++ Multiple variables for inflation expectation: V294/V295; V459/V460; V549/V550.
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1975_Q1 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07479/07479-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1975_Q1_subset <- data_1975_Q1 %>%
+  select(
+    age                     = V262,
+    Categorical_Infl_Exp_YR = V26,
+    Numerical_Infl_Exp_YR   = V27
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1975_Q1_transformed <- data_1975_Q1_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR   = primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR)
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1975_Q1_final <- data_1975_Q1_transformed %>%
+  mutate(
+    year             = 1975,
+    quarter          = 1,
+    Document_id      = "07479",
+  )
+```
+
+
+#### [**1975/Q2 - 07480**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07480/07480-0001-Codebook.pdf)
+`r create_relative_file_link(1975, 2, "07480")`
+
++ Multiple variables for inflation expectation: V433/V434; V508/V509
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1975_Q2 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07480/07480-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1975_Q2_subset <- data_1975_Q2 %>%
+  select(
+    age                     = V398,
+    Categorical_Infl_Exp_YR = V22,
+    Numerical_Infl_Exp_YR   = V27
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1975_Q2_transformed <- data_1975_Q2_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR   = primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR)
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1975_Q2_final <- data_1975_Q2_transformed %>%
+  mutate(
+    year             = 1975,
+    quarter          = 2,
+    Document_id      = "07480",
+  )
+```
+
+
+#### [**1976/Q2 - 07544**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07544/07544-0001-Codebook.pdf)
+`r create_relative_file_link(1976, 2, "07544")`
+
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1976_Q2 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07544/07544-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1976_Q2_subset <- data_1976_Q2 %>%
+  select(
+    age                     = V57,
+    Categorical_Infl_Exp_YR = V116,
+    Numerical_Infl_Exp_YR   = V117
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1976_Q2_transformed <- data_1976_Q2_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR   = primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR)
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1976_Q2_final <- data_1976_Q2_transformed %>%
+  mutate(
+    year             = 1976,
+    quarter          = 2,
+    Document_id      = "07544",
+  )
+```
+ 
+ 
+#### [**1975/Q4 - 07482**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07482/07482-0001-Codebook.pdf)
+`r create_relative_file_link(1975, 4, "07482")`
+
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1975_Q4 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07482/07482-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1975_Q4_subset <- data_1975_Q4 %>%
+  select(
+    age                     = V43,
+    Categorical_Infl_Exp_YR = V114,
+    Numerical_Infl_Exp_YR   = V115
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1975_Q4_transformed <- data_1975_Q4_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR   = primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR)
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1975_Q4_final <- data_1975_Q4_transformed %>%
+  mutate(
+    year             = 1975,
+    quarter          = 4,
+    Document_id      = "07482",
+  )
+```
+
+## Custom Extraction and Transformation 
+
+#### [**1957/Q2 - 03602**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/03602/03602-0001-Codebook.pdf)
+`r create_relative_file_link(1957, 2, "03602")`
+
++ "error" for four entries for the variable age. Encoding was checked twice but is accurate. Potential Data consistency issue. 
+
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1957_Q2 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/03602/03602-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1957_Q2_subset <- data_1957_Q2 %>%
+  select(
+    age                     = V183,
+    Categorical_Infl_Exp_YR = V38,
+    Numerical_Infl_Exp_YR   = V39
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1957_Q2_transformed <- data_1957_Q2_subset %>%
+  mutate(
+    Numerical_Infl_Exp_YR = case_when(
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR == 1 ~ "11",
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR == 2 ~ "1",
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR == 4 ~ "-1",
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR == 5 ~ "-11",
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR %in% c(0, 8, 9) ~ NA,
+
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR == 1 ~ "11",
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR == 2 ~ "5.5",
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR == 4 ~ "-5.5",
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR == 5 ~ "-11",
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR %in% c(0, 8, 9) ~ NA,
+
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR == 1 ~ "11",
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR == 2 ~ "10",
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR == 4 ~ "-10",
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR == 5 ~ "-11",
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR %in% c(0, 8, 9) ~ NA,
+      is.na(Numerical_Infl_Exp_YR) ~ NA_character_,
+
+      TRUE ~ "error"
+    ),
+    
+    Categorical_Infl_Exp_YR = case_when(
+      Categorical_Infl_Exp_YR == 1 ~ "1",
+      Categorical_Infl_Exp_YR == 2 ~ "3",
+      Categorical_Infl_Exp_YR == 3 ~ "5",
+      Categorical_Infl_Exp_YR == 4 ~ "2",
+      Categorical_Infl_Exp_YR == 5 ~ "4",
+      Categorical_Infl_Exp_YR == 6 ~ "2",
+      Categorical_Infl_Exp_YR == 7 ~ "3",
+      Categorical_Infl_Exp_YR == 8 ~ "4",
+      Categorical_Infl_Exp_YR %in% c(0, 9) ~ NA,
+      is.na(Categorical_Infl_Exp_YR) ~ NA_character_,
+      TRUE ~ "error"
+    ),
+    
+    age = case_when(
+      age == 18 ~ "19.0",
+      age == 21 ~ "22.5",
+      age == 25 ~ "27.0",
+      age == 30 ~ "32.0",
+      age == 35 ~ "37.0",
+      age == 40 ~ "42.0",
+      age == 45 ~ "47.0",
+      age == 50 ~ "52.0",
+      age == 55 ~ "57.0",
+      age == 60 ~ "62.0",
+      age == 65 ~ "65.0",
+      is.na(age) ~ NA_character_,
+      TRUE ~ "error"
+    )
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1957_Q2_final <- data_1957_Q2_transformed %>%
+  mutate(
+    year             = 1957,
+    quarter          = 2,
+    Document_id      = "03602",
+  )
+```
+
+#### [**1976/Q4 - 08723**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/08723/08723-0001-Codebook.pdf)
+`r create_relative_file_link(1976, 4, "08723")`
+
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1976_Q4 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/08723/08723-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1976_Q4_subset <- data_1976_Q4 %>%
+  transmute(
+    age                     = V278,
+    group                   = V10,
+    Categorical_Infl_Exp_YR = if_else(V10 == 1, V39, V45),
+    Numerical_Infl_Exp_YR_raw = if_else(V10 == 1, V40, V46)
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1976_Q4_transformed <- data_1976_Q4_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR   = case_when(
+      is.na(Numerical_Infl_Exp_YR_raw) | is.na(group) ~ NA_character_,
+      
+      group == 2 & Numerical_Infl_Exp_YR_raw %in% 1:97 ~ as.character(Numerical_Infl_Exp_YR_raw),
+      group == 2 & Numerical_Infl_Exp_YR_raw %in% c(0, 98, 99) ~ NA_character_,
+      group == 2 ~ "error",
+      group == 1 ~ primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR_raw),
+      TRUE       ~ "error" 
+    )
+  ) %>%
+  select(-group, -Numerical_Infl_Exp_YR_raw)
+# ------------------- 4. Add metadata -------------------
+data_1976_Q4_final <- data_1976_Q4_transformed %>%
+  mutate(
+    year             = 1976,
+    quarter          = 4,
+    Document_id      = "08723",
+  )
+```
+
+
+#### [**1977/Q2 - 08725**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/08725/08725-0001-Codebook.pdf)
+`r create_relative_file_link(1977, 2, "08725")`
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1977_Q2 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/08725/08725-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1977_Q2_subset <- data_1977_Q2 %>%
+  transmute( 
+    age                     = V347,
+    group                   = V34,
+    Categorical_Infl_Exp_YR = if_else(V34 == 2, V43, V37),
+    Numerical_Infl_Exp_YR_raw = if_else(V34 == 2, V44, V38)
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1977_Q2_transformed <- data_1977_Q2_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR   = case_when(
+      is.na(Numerical_Infl_Exp_YR_raw) | is.na(group) ~ NA_character_,
+      group == 2 & Numerical_Infl_Exp_YR_raw %in% 1:97 ~ as.character(Numerical_Infl_Exp_YR_raw),
+      group == 2 & Numerical_Infl_Exp_YR_raw %in% c(0, 98, 99) ~ NA_character_,
+      group == 2 ~ "error",
+      group == 1 ~ primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR_raw),
+      TRUE       ~ "error"
+    )
+  ) %>%
+  select(-group, -Numerical_Infl_Exp_YR_raw)
+
+# ------------------- 4. Add metadata -------------------
+data_1977_Q2_final <- data_1977_Q2_transformed %>%
+  mutate(
+    year             = 1977,
+    quarter          = 2,
+    Document_id      = "08725",
+  )
+```
+
+
+#### [**1977/Q3 - 08726**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/08726/08726-0001-Codebook.pdf)
+`r create_relative_file_link(1977, 3, "08726")`
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1977_Q3 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/08726/08726-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1977_Q3_subset <- data_1977_Q3 %>%
+  select(
+    age                     = V357,
+    Categorical_Infl_Exp_YR = V133,
+    Numerical_Infl_Exp_YR   = V134
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1977_Q3_transformed <- data_1977_Q3_subset %>%
+  mutate(
+    Numerical_Infl_Exp_YR = case_when(
+      Numerical_Infl_Exp_YR %in% 1:97               ~ as.character(Numerical_Infl_Exp_YR),
+      Numerical_Infl_Exp_YR %in% c(0, 98, 99)       ~ NA,
+      is.na(Numerical_Infl_Exp_YR) ~ NA_character_,
+      TRUE                                          ~ "error"
+    ),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    age = transformation_continuous_age(age)
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1977_Q3_final <- data_1977_Q3_transformed %>%
+  mutate(
+    year             = 1977,
+    quarter          = 3,
+    Document_id      = "08726",
+  )
+```
+
+
+#### [**1977/Q4 - 08727**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/08727/08727-0001-Codebook.pdf)
+`r create_relative_file_link(1977, 4, "08727")`
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1977_Q4 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/08727/08727-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1977_Q4_subset <- data_1977_Q4 %>%
+  select(
+    age                     = V289,
+    Categorical_Infl_Exp_YR = V134,
+    Numerical_Infl_Exp_YR   = V137
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1977_Q4_transformed <- data_1977_Q4_subset %>%
+  mutate(
+    Numerical_Infl_Exp_YR = case_when(
+      Numerical_Infl_Exp_YR %in% 1:97         ~ as.character(Numerical_Infl_Exp_YR),
+      Numerical_Infl_Exp_YR %in% c(0, 98, 99)    ~ NA,
+      is.na(Numerical_Infl_Exp_YR) ~ NA,
+      TRUE                                    ~ "error"
+    ),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    age = transformation_continuous_age(age)
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1977_Q4_final <- data_1977_Q4_transformed %>%
+  mutate(
+    year             = 1977,
+    quarter          = 4,
+    Document_id      = "08727",
+  )
+```
+
+#### [**1975/Q3 – 07481**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/04781/04781-0001-Codebook.pdf)
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1975_Q3 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07481/07481-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1975_Q3_subset <- data_1975_Q3 %>%
+  select(
+    age                     = V254,
+    Categorical_Infl_Exp_YR = V25,
+    Numerical_Infl_Exp_YR   = V30
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1975_Q3_transformed <- data_1975_Q3_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR   = primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR)
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1975_Q3_final <- data_1975_Q3_transformed %>%
+  mutate(
+    year        = 1975,
+    quarter     = 3,
+    Document_id = "07481"
+  )
+```
+
+#### [**1974/Q4 – 07524**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07524/07524-0001-Codebook.pdf)
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1974_Q4 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07524/07524-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1974_Q4_subset <- data_1974_Q4 %>%
+  select(
+    age                     = V70,
+    Categorical_Infl_Exp_YR = V114,
+    Numerical_Infl_Exp_YR   = V115
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1974_Q4_transformed <- data_1974_Q4_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR   = primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR)
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1974_Q4_final <- data_1974_Q4_transformed %>%
+  mutate(
+    year        = 1974,
+    quarter     = 4,
+    Document_id = "07524"
+  )
+```
+
+#### [**1976/Q3 – 07545**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07545/07545-0001-Codebook.pdf)
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1976_Q3 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07545/07545-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1976_Q3_subset <- data_1976_Q3 %>%
+  transmute(
+    age                     = V290,
+    group                   = V9,
+    Categorical_Infl_Exp_YR = if_else(V9 == 2, V68, V44),
+    Numerical_Infl_Exp_YR_raw = if_else(V9 == 2, V73, V49)
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1976_Q3_transformed <- data_1976_Q3_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR   = case_when(
+      is.na(Numerical_Infl_Exp_YR_raw) | is.na(group) ~ NA_character_,
+      group == 2 & Numerical_Infl_Exp_YR_raw %in% 1:97 ~ as.character(Numerical_Infl_Exp_YR_raw),
+      group == 2 & Numerical_Infl_Exp_YR_raw %in% c(0, 98, 99) ~ NA_character_,
+      group == 2 ~ "error",
+      group == 1 ~ primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR_raw),
+      TRUE       ~ "error"
+    )
+  ) %>%
+  select(-group, -Numerical_Infl_Exp_YR_raw)
+
+# ------------------- 4. Add metadata -------------------
+data_1976_Q3_final <- data_1976_Q3_transformed %>%
+  mutate(
+    year        = 1976,
+    quarter     = 3,
+    Document_id = "07545"
+  )
+```
+
+##  Survey of Consumer Finances 
+
+### Files Using Standard Transformation Functions 
+
+#### [**1960/Q1 – 07440**](Datasets/Survey_of_Consumer_Finances/ICPSR_07440/07440-0001-Codebook.pdf)
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1960_Q1 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Finances/ICPSR_07440/DS0001/07440-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1960_Q1_subset <- data_1960_Q1 %>%
+  transmute(
+    age_raw                  = V13,
+    Categorical_Infl_Exp_YR_raw = V70,
+    Numerical_Infl_Exp_YR       = NA  # no numerical expectation in this wave
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1960_Q1_transformed <- data_1960_Q1_subset %>%
+  mutate(
+    age = transformation_continuous_age(age_raw),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR_raw)
+  ) %>%
+  select(age, Categorical_Infl_Exp_YR, Numerical_Infl_Exp_YR)
+
+# ------------------- 4. Add metadata -------------------
+data_1960_Q1_subset_transformed <- data_1960_Q1_transformed %>%
+  mutate(
+    year        = 1960,
+    quarter     = 1,
+    Document_id = "07440"
+  ) %>%
+  select(year, quarter, Document_id, age, Categorical_Infl_Exp_YR, Numerical_Infl_Exp_YR)
+```
+
+
+#### [**1964/Q1 – 07444**](Datasets/Survey_of_Consumer_Finances/ICPSR_07444/07444-0001-Codebook.pdf)
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1964_Q1 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Finances/ICPSR_07444/DS0001/07444-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1964_Q1_subset <- data_1964_Q1 %>%
+  select(
+    age                     = V65,
+    Categorical_Infl_Exp_YR = V9
+  ) %>%
+  mutate(
+    Numerical_Infl_Exp_YR = NA
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1964_Q1_transformed <- data_1964_Q1_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR)
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1964_Q1_final <- data_1964_Q1_transformed %>%
+  mutate(
+    year             = 1964,
+    quarter          = 1,
+    Document_id      = "07444",
+    label_identifier = "Survey of Consumer Finances, Q1 1964"
+  )
+```
+
+
+#### [**1969/Q1 – 07449**](Datasets/Survey_of_Consumer_Finances/ICPSR_07449/07449-0001-Codebook.pdf)
+
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1969_Q1 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Finances/ICPSR_07449/DS0001/07449-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1969_Q1_subset <- data_1969_Q1 %>%
+  select(
+    age                     = V29,
+    Categorical_Infl_Exp_YR = V59,
+    Numerical_Infl_Exp_YR   = V60
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1969_Q1_transformed <- data_1969_Q1_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR   = case_when(
+      is.na(Numerical_Infl_Exp_YR) ~ NA_character_,
+      Numerical_Infl_Exp_YR %in% 1:5 ~ as.character(Numerical_Infl_Exp_YR),
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR == 6 ~ "6",
+      perc_transform_mode == "mean"  & Numerical_Infl_Exp_YR == 6 ~ "7.5",
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR == 6 ~ "9",
+      Numerical_Infl_Exp_YR == 7 ~ "10",
+      Numerical_Infl_Exp_YR %in% c(0, 8, 9) ~ NA_character_,
+      TRUE ~ "error"
+    )
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1969_Q1_final <- data_1969_Q1_transformed %>%
+  mutate(
+    year             = 1969,
+    quarter          = 1,
+    Document_id      = "07449",
+    label_identifier = "Survey of Consumer Finances, Q1 1969"
+  )
+```
+
+#### [**1970/Q1 – 07450**](Datasets/Survey_of_Consumer_Finances/ICPSR_07450/07450-0001-Codebook.pdf)
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1970_Q1 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Finances/ICPSR_07450/DS0001/07450-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1970_Q1_subset <- data_1970_Q1 %>%
+  select(
+    age                     = V20,
+    Categorical_Infl_Exp_YR = V51,
+    Numerical_Infl_Exp_YR   = V52
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1970_Q1_transformed <- data_1970_Q1_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR   = primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR)
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1970_Q1_final <- data_1970_Q1_transformed %>%
+  mutate(
+    year             = 1970,
+    quarter          = 1,
+    Document_id      = "07450",
+    label_identifier = "Survey of Consumer Finances, Q1 1970"
+  )
+```
+
+
+#### [**1971/Q1 – 07451**](Datasets/Survey_of_Consumer_Finances/ICPSR_07451/07451-0001-Codebook.pdf)
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1971_Q1 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Finances/ICPSR_07451/DS0001/07451-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1971_Q1_subset <- data_1971_Q1 %>%
+  select(
+    age                     = V20,
+    Categorical_Infl_Exp_YR = V47,
+    Numerical_Infl_Exp_YR   = V48
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1971_Q1_transformed <- data_1971_Q1_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR   = primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR)
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1971_Q1_final <- data_1971_Q1_transformed %>%
+  mutate(
+    year             = 1971,
+    quarter          = 1,
+    Document_id      = "07451",
+    label_identifier = "Survey of Consumer Finances, Q1 1971"
+  )
+```
+
+### Custom Extraction and Transformation
+
+#### [**1965/Q1 – 07445**](Datasets/Survey_of_Consumer_Finances/ICPSR_07445/07445-0001-Codebook.pdf)
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1965_Q1 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Finances/ICPSR_07445/DS0001/07445-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1965_Q1_subset <- data_1965_Q1 %>%
+  select(
+    age_bracket              = V49,
+    Categorical_Infl_Exp_YR  = V230
+  ) %>%
+  mutate(
+    Numerical_Infl_Exp_YR = NA
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1965_Q1_transformed <- data_1965_Q1_subset %>%
+  mutate(
+    age = case_when(
+      age_bracket == 1 ~ "25",      # Under 25
+      age_bracket == 2 ~ "29.5",    # 25–34
+      age_bracket == 3 ~ "39.5",    # 35–44
+      age_bracket == 4 ~ "49.5",    # 45–54
+      age_bracket == 5 ~ "59.5",    # 55–64
+      age_bracket == 6 ~ "65",      # 65 and over 
+      age_bracket == 9 ~ NA,
+      is.na(age_bracket) ~ NA_character_,
+      TRUE ~ "error"
+    ),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR)
+  ) %>%
+  select(-age_bracket)
+
+# ------------------- 4. Add metadata -------------------
+data_1965_Q1_final <- data_1965_Q1_transformed %>%
+  mutate(
+    year             = 1965,
+    quarter          = 1,
+    Document_id      = "07445",
+    label_identifier = "Survey of Consumer Finances, Q1 1965"
+  )
+```
+
+#### [**1966/Q1 – 07446**](Datasets/Survey_of_Consumer_Finances/ICPSR_07446/07446-0001-Codebook.pdf)
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1966_Q1 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Finances/ICPSR_07446/DS0001/07446-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1966_Q1_subset <- data_1966_Q1 %>%
+  select(
+    age_bracket             = V34,
+    Categorical_Infl_Exp_YR = V162
+  ) %>%
+  mutate(
+    Numerical_Infl_Exp_YR = NA
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1966_Q1_transformed <- data_1966_Q1_subset %>%
+  mutate(
+    age = case_when(
+      age_bracket == 1 ~ "25",      # Under 25
+      age_bracket == 2 ~ "29.5",    # 25–34
+      age_bracket == 3 ~ "39.5",    # 35–44
+      age_bracket == 4 ~ "49.5",    # 45–54
+      age_bracket == 5 ~ "59.5",    # 55–64
+      age_bracket == 6 ~ "65",      # 65 and over
+      age_bracket == 9 ~ NA,
+      is.na(age_bracket) ~ NA_character_,
+      TRUE ~ "error"
+    ),
+    
+    # Custom transformation for Categorical_Infl_Exp_YR
+    Categorical_Infl_Exp_YR = case_when(
+      Categorical_Infl_Exp_YR %in% 1:5 ~ as.character(Categorical_Infl_Exp_YR),
+      Categorical_Infl_Exp_YR == 8 ~ NA,
+      is.na(Categorical_Infl_Exp_YR) ~ NA,
+      TRUE ~ "error"
+    )
+  ) %>%
+  select(-age_bracket)
+
+# ------------------- 4. Add metadata -------------------
+data_1966_Q1_final <- data_1966_Q1_transformed %>%
+  mutate(
+    year             = 1966,
+    quarter          = 1,
+    Document_id      = "07446",
+    label_identifier = "Survey of Consumer Finances, Q1 1966"
+  )
+```
+
+#### [**1967/Q1 – 07447**](Datasets/Survey_of_Consumer_Finances/ICPSR_07447/07447-0001-Codebook.pdf)
+```{r}
+# ------------------- 1. Read raw data -------------------
+data_1967_Q1 <- read_dta("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Finances/ICPSR_07447/DS0001/07447-0001-Data.dta")
+
+# ------------------- 2. Extract raw variables -------------------
+data_1967_Q1_subset <- data_1967_Q1 %>%
+  select(
+    age                     = V22,      
+    Categorical_Infl_Exp_YR = V112,
+    Numerical_Infl_Exp_YR_raw = V113
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1967_Q1_transformed <- data_1967_Q1_subset %>%
+  mutate(
+    age = transformation_continuous_age(age),
+
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+
+    Numerical_Infl_Exp_YR = case_when(
+      Numerical_Infl_Exp_YR_raw == 1 ~ "1.5",
+      Numerical_Infl_Exp_YR_raw == 2 ~ "3.5",
+      Numerical_Infl_Exp_YR_raw == 3 ~ "5",
+      Numerical_Infl_Exp_YR_raw == 4 ~ "7.5",
+      Numerical_Infl_Exp_YR_raw == 5 ~ "14.5",
+      Numerical_Infl_Exp_YR_raw == 6 ~ "20",
+      Numerical_Infl_Exp_YR_raw %in% c(0, 7, 8, 9) ~ NA,
+      is.na(Numerical_Infl_Exp_YR_raw) ~ NA_character_,
+      TRUE ~ "error"
+    )
+  ) %>%
+  select(-Numerical_Infl_Exp_YR_raw)
+
+# ------------------- 4. Add metadata -------------------
+data_1967_Q1_final <- data_1967_Q1_transformed %>%
+  mutate(
+    year             = 1967,
+    quarter          = 1,
+    Document_id      = "07447",
+    label_identifier = "Survey of Consumer Finances, Q1 1967"
+  )
+```
+
+#### [**1968/Q1 – 07448**](Datasets/Survey_of_Consumer_Finances/ICPSR_07448/07448-0001-Codebook.pdf)
+
++ This is the Michigan News and Media Survey, which is part of the Michigan Survey of Consumers, but it does not include questions about inflation expectations
+
+
+
+# Processing .txt Files 
+Some survey quarters are stored in .txt format. Extracting the relevant variables from these files requires knowledge of the structure of the encoding. In general, there are two types of extraction logic:
+
+*1. Line-based encoding (single-line per respondent)*
+In this case, each line in the text file represents one respondent. The answers to each survey question are stored as fixed-width substrings within that line. Each variable corresponds to one or more consecutive characters. For example, variable 20 might be located at positions 90 to 91 in the line. The extraction procedure reads the file line-by-line, then applies substr() to select the relevant text positions for each variable.
+
+*2. Multi-line encoding (deck-based structure)*
+In this case, each respondent is represented by a fixed number of consecutive lines in the text file, corresponding to the number of decks defined for that particular survey wave (e.g., 3, 5, 7, or more lines per respondent). Each line contains the variables associated with a specific deck which is a thematic section of the questionnaire (such as credit, unemployment, expectations).
+The raw file is read line-by-line and then reshaped so that each group of n lines (where n equals the number of decks) is treated as one complete response. For example, if a survey consists of 3 decks, then every three consecutive lines in the file belong to the same respondent: the first line corresponds to deck 1, the second to deck 2, and the third to deck 3.
+Variable extraction is then performed deck-wise using fixed-width substr() operations based on the documented column positions within each deck.
+ 
+*Variable position mapping*
+To determine which exact characters to extract for each variable, there are two main sources:
+
+1. .do, .dct, or other setup files may be included. These files provide precise definitions of variable positions and, if applicable, their corresponding decks. If these setup files are available, they are the preferred source for extraction instructions.
+
+2. If no setup files are available, the codebook typically includes a variable dictionary at the end of the document. This dictionary is a table which lists each variable, its description, and its column position in the text file. In the case of multi-deck surveys, it also specifies the deck on which each variable appears.
+ 
+The selected variables (age, categorical inflation expectations, numerical inflation expectations) are then cleaned, transformed, and standardized. Where necessary, transformation functions are used to convert raw codes into interpretable values, and invalid or undocumented codes are flagged as errors or converted to NA.
+
+If neither a dictionary nor setup files are available, the appropriate extraction logic can often still be inferred from the structure of the file. For instance, if it is evident that the file consists of multiple decks (e.g., recurring blocks of lines per respondent), the deck-based extraction method can be applied. Alternatively, if each line appears to represent one respondent in full, the single-line fixed-position method is used. However in the context of this extraction, no procedure will be derived for files whose structure does not allow for a clear extraction logic to be inferred.
+
+The extracted .txt files are grouped into two categories based on their source: the Survey of Consumer Attitudes and Behavior and the Survey of Consumer Finances. In this section, no further distinction is made between cases that follow a standard transformation function and those that require custom logic.
+
+
+## Survey of Consumer Attitudes and Behavior 
+
+### [**1966/Q3 – 03620**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/03620/03620-0001-Codebook.pdf)
+```{r}
+# ------------------- 1. Read raw data -------------------
+file_1966 <- "~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/03620/03620-0001-Data-card_image.txt"
+all_lines_1966 <- readLines(file_1966)
+
+# Resolve 3-line card structure
+deck1 <- all_lines_1966[seq(1, length(all_lines_1966), by = 3)]
+deck2 <- all_lines_1966[seq(2, length(all_lines_1966), by = 3)]
+deck3 <- all_lines_1966[seq(3, length(all_lines_1966), by = 3)]
+
+# Combine into raw data frame
+data_1966_raw <- data.frame(deck1 = deck1, deck2 = deck2, deck3 = deck3, stringsAsFactors = FALSE)
+
+# ------------------- 2. Transform and extract variables -------------------
+data_1966_transformed <- data_1966_raw %>%
+  mutate(
+    year             = 1966,
+    quarter          = 3,
+    Document_id      = "03620",
+    label_identifier = "Survey of Consumer Attitudes and Behavior, Summer 1966",
+
+    age = transformation_continuous_age(substr(deck1, 22, 23)),
+
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(substr(deck1, 44, 44)),
+
+    Numerical_Infl_Exp_YR_raw = substr(deck1, 45, 45),
+    Numerical_Infl_Exp_YR = case_when(
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR_raw == "1" ~ "2",
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR_raw == "2" ~ "3",
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR_raw == "3" ~ "5",
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR_raw == "4" ~ "6",
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR_raw == "5" ~ "10",
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR_raw == "6" ~ "20",
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR_raw %in% c("7", "8", "9", "0", "-") ~ NA,
+
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR_raw == "1" ~ "2",
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR_raw == "2" ~ "3.5",
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR_raw == "3" ~ "5",
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR_raw == "4" ~ "7.5",
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR_raw == "5" ~ "14.5",
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR_raw == "6" ~ "20",
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR_raw %in% c("7", "8", "9", "0", "-") ~ NA,
+
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR_raw == "1" ~ "2",
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR_raw == "2" ~ "4",
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR_raw == "3" ~ "5",
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR_raw == "4" ~ "9",
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR_raw == "5" ~ "19",
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR_raw == "6" ~ "20",
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR_raw %in% c("7", "8", "9", "0", "-") ~ NA,
+
+      TRUE ~ "error"  # sanity check for invalid codes
+    )
+  ) %>%
+  select(
+    year, quarter, Document_id, label_identifier,
+    age, Categorical_Infl_Exp_YR, Numerical_Infl_Exp_YR
+  )
+```
+
+### [**1965/Q4 – 03621**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/03621/03621-0001-Codebook.pdf)
+
+```{r}
+# # ------------------- 1. Read raw data -------------------
+# file_1965 <- "~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/03621/03621-0001-Data-card_image.txt"
+# all_lines_1965 <- readLines(file_1965)
+# 
+# # ------------------- 2. Resolve 5-line card structure -------------------
+# deck1 <- all_lines_1965[seq(1, length(all_lines_1965), by = 5)]
+# deck2 <- all_lines_1965[seq(2, length(all_lines_1965), by = 5)]
+# deck3 <- all_lines_1965[seq(3, length(all_lines_1965), by = 5)]
+# deck4 <- all_lines_1965[seq(4, length(all_lines_1965), by = 5)]
+# deck5 <- all_lines_1965[seq(5, length(all_lines_1965), by = 5)]
+# 
+# # Combine into raw data frame (long layout)
+# data_1965_raw <- data.frame(deck1 = deck1, deck2 = deck2, deck3 = deck3, deck4 = deck4, deck5 = deck5, stringsAsFactors = FALSE)
+# 
+# # ------------------- 3. Transform and extract variables -------------------
+# data_1965_transformed <- data_1965_raw %>%
+#   mutate(
+#     year             = 1965,
+#     quarter          = 4,
+#     Document_id      = "03621",
+#     label_identifier = "Survey of Consumer Attitudes and Behavior, Fall 1965",
+# 
+#     age = case_when(
+#       substr(deck1, 22, 22) == "1" ~ "21",
+#       substr(deck1, 22, 22) == "2" ~ "29.5",
+#       substr(deck1, 22, 22) == "3" ~ "39.5",
+#       substr(deck1, 22, 22) == "4" ~ "49.5",
+#       substr(deck1, 22, 22) == "5" ~ "59.5",
+#       substr(deck1, 22, 22) == "6" ~ "70",
+#       substr(deck1, 22, 22) == "9" ~ NA,
+#       TRUE ~ "error"
+#     ),
+# 
+#     Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(substr(deck4, 34, 34)),
+# 
+#     Numerical_Infl_Exp_YR = NA # Not available in this questionaire
+#   ) %>%
+#   select(
+#     year, quarter, Document_id, label_identifier,
+#     age, Categorical_Infl_Exp_YR, Numerical_Infl_Exp_YR
+#   )
+```
+
+### [**1963/Q3 – 03622**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/03622/03622-0001-Codebook.pdf)
+```{r}
+# ------------------- 1. Read raw data -------------------
+file_1963 <- "~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/03622/03622-0001-Data-card_image.txt"
+all_lines_1963 <- readLines(file_1963)
+
+# ------------------- 2. Resolve 6-line card structure -------------------
+deck1 <- all_lines_1963[seq(1, length(all_lines_1963), by = 6)]
+deck2 <- all_lines_1963[seq(2, length(all_lines_1963), by = 6)]
+deck3 <- all_lines_1963[seq(3, length(all_lines_1963), by = 6)]
+deck4 <- all_lines_1963[seq(4, length(all_lines_1963), by = 6)]
+deck5 <- all_lines_1963[seq(5, length(all_lines_1963), by = 6)]
+deck6 <- all_lines_1963[seq(6, length(all_lines_1963), by = 6)]
+
+# Combine into raw data frame (long layout)
+data_1963_raw <- data.frame(deck1 = deck1, deck2 = deck2, deck3 = deck3, deck4 = deck4, deck5 = deck5, deck6 = deck6, stringsAsFactors = FALSE)
+
+# ------------------- 3. Transform and extract variables -------------------
+data_1963_Q3_txt_transformed <- data_1963_raw %>%
+  mutate(
+    year             = 1963,
+    quarter          = 3,
+    Document_id      = "03622",
+    label_identifier = "Survey of Consumer Attitudes and Behavior, Summer 1963",
+
+    age = case_when(
+      substr(deck6, 43, 43) == "1" ~ "21",
+      substr(deck6, 43, 43) == "2" ~ "29.5",
+      substr(deck6, 43, 43) == "3" ~ "39.5",
+      substr(deck6, 43, 43) == "4" ~ "49.5",
+      substr(deck6, 43, 43) == "5" ~ "59.5",
+      substr(deck6, 43, 43) == "6" ~ "70",
+      substr(deck6, 43, 43) == "9" ~ NA,
+      TRUE ~ "error"  # sanity check
+    ),
+
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(substr(deck1, 57, 57)),
+
+    Numerical_Infl_Exp_YR = NA
+  ) %>%
+  select(
+    year, quarter, Document_id, label_identifier,
+    age, Categorical_Infl_Exp_YR, Numerical_Infl_Exp_YR
+  )
+```
+
+### [**1962/Q4 – 03626**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/03626/03626-0001-Codebook.pdf)
+
++ Potential Data Inconsitency Issue: for age, the value 7 appears once, despite it having no encoding in the codebook
+```{r}
+# ------------------- 1. Read raw data -------------------
+file_1962 <- "~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Attitudes_and_Behavior/03626/03626-0001-Data-card_image.txt"
+all_lines_1962 <- readLines(file_1962)
+
+# ------------------- 2. Resolve 12-line card structure -------------------
+deck1  <- all_lines_1962[seq(1, length(all_lines_1962), by = 12)]
+deck2  <- all_lines_1962[seq(2, length(all_lines_1962), by = 12)]
+deck3  <- all_lines_1962[seq(3, length(all_lines_1962), by = 12)]
+deck4  <- all_lines_1962[seq(4, length(all_lines_1962), by = 12)]
+deck5  <- all_lines_1962[seq(5, length(all_lines_1962), by = 12)]
+deck6  <- all_lines_1962[seq(6, length(all_lines_1962), by = 12)]
+deck7  <- all_lines_1962[seq(7, length(all_lines_1962), by = 12)]
+deck8  <- all_lines_1962[seq(8, length(all_lines_1962), by = 12)]
+deck9  <- all_lines_1962[seq(9, length(all_lines_1962), by = 12)]
+deck10 <- all_lines_1962[seq(10, length(all_lines_1962), by = 12)]
+deck11 <- all_lines_1962[seq(11, length(all_lines_1962), by = 12)]
+deck12 <- all_lines_1962[seq(12, length(all_lines_1962), by = 12)]
+
+# Combine into raw data frame (long layout)
+data_1962_raw <- data.frame(
+  deck1  = deck1,  deck2  = deck2,  deck3  = deck3,  deck4  = deck4,
+  deck5  = deck5,  deck6  = deck6,  deck7  = deck7,  deck8  = deck8,
+  deck9  = deck9,  deck10 = deck10, deck11 = deck11, deck12 = deck12,
+  stringsAsFactors = FALSE
+)
+
+# ------------------- 3. Transform and extract variables -------------------
+data_1962_Q4_txt_transformed <- data_1962_raw %>%
+  mutate(
+    year             = 1962,
+    quarter          = 4,
+    Document_id      = "03626",
+    label_identifier = "Survey of Consumer Attitudes and Behavior, Fall 1962",
+
+    age = case_when(
+      substr(deck2, 50, 50) == "1" ~ "21",
+      substr(deck2, 50, 50) == "2" ~ "29.5",
+      substr(deck2, 50, 50) == "3" ~ "39.5",
+      substr(deck2, 50, 50) == "4" ~ "49.5",
+      substr(deck2, 50, 50) == "5" ~ "59.5",
+      substr(deck2, 50, 50) == "6" ~ "70",
+      substr(deck2, 50, 50) == "9" ~ NA,
+      TRUE ~ "error"
+    ),
+
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(substr(deck1, 49, 49)),
+    Numerical_Infl_Exp_YR   = NA
+  ) %>%
+  select(
+    year, quarter, Document_id, label_identifier,
+    age, Categorical_Infl_Exp_YR, Numerical_Infl_Exp_YR
+  )
+```
+
+### [**1962/Q3 – 03627**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/03627/03627-0001-Codebook.pdf)
+```{r}
+# ------------------- 1. Read raw data -------------------
+file_1962 <- file.path("~", "2804_Inflation","JanFeb26_WorkingFolder", "Datasets", "Survey_of_Consumer_Attitudes_and_Behavior", "03627", "03627-0001-Data-card_image.txt")
+all_lines_1962 <- readLines(file_1962)
+
+# ------------------- 2. Resolve 9-line card structure -------------------
+deck1 <- all_lines_1962[seq(1, length(all_lines_1962), by = 9)]
+deck2 <- all_lines_1962[seq(2, length(all_lines_1962), by = 9)]
+deck3 <- all_lines_1962[seq(3, length(all_lines_1962), by = 9)]
+deck4 <- all_lines_1962[seq(4, length(all_lines_1962), by = 9)]
+deck5 <- all_lines_1962[seq(5, length(all_lines_1962), by = 9)]
+deck6 <- all_lines_1962[seq(6, length(all_lines_1962), by = 9)]
+deck7 <- all_lines_1962[seq(7, length(all_lines_1962), by = 9)]
+deck8 <- all_lines_1962[seq(8, length(all_lines_1962), by = 9)]
+deck9 <- all_lines_1962[seq(9, length(all_lines_1962), by = 9)]
+
+# Combine into raw data frame (long layout)
+data_1962_raw <- data.frame(deck1 = deck1, deck2 = deck2, deck3 = deck3, deck4 = deck4, deck5 = deck5, deck6 = deck6, deck7 = deck7, deck8 = deck8, deck9 = deck9, stringsAsFactors = FALSE)
+
+# ------------------- 3. Transform and extract variables -------------------
+data_1962_Q3_txt_transformed <- data_1962_raw %>%
+  mutate(
+    year             = 1962,
+    quarter          = 3,
+    Document_id      = "03627",
+    label_identifier = "Survey of Consumer Attitudes and Behavior, Summer 1962",
+
+    age = case_when(
+      substr(deck3, 44, 44) == "1" ~ "21",
+      substr(deck3, 44, 44) == "2" ~ "29.5",
+      substr(deck3, 44, 44) == "3" ~ "39.5",
+      substr(deck3, 44, 44) == "4" ~ "49.5",
+      substr(deck3, 44, 44) == "5" ~ "59.5",
+      substr(deck3, 44, 44) == "6" ~ "70",
+      substr(deck3, 44, 44) == "9" ~ NA,
+      TRUE ~ "error"  # sanity check
+    ),
+
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(substr(deck1, 50, 50)),
+
+    Numerical_Infl_Exp_YR = NA
+  ) %>%
+  select(
+    year, quarter, Document_id, label_identifier,
+    age, Categorical_Infl_Exp_YR, Numerical_Infl_Exp_YR
+  )
+```
+
+### [**1961/Q4 – 03628**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/03628/03628-0001-Codebook.pdf)
+```{r}
+# ------------------- 1. Read raw data -------------------
+file_1961 <- file.path("~", "2804_Inflation", "JanFeb26_WorkingFolder", "Datasets", "Survey_of_Consumer_Attitudes_and_Behavior", "03628", "03628-0001-Data-card_image.txt")
+all_lines_1961 <- readLines(file_1961)
+
+# ------------------- 2. Resolve 4-line card structure -------------------
+deck1 <- all_lines_1961[seq(1, length(all_lines_1961), by = 4)]
+deck2 <- all_lines_1961[seq(2, length(all_lines_1961), by = 4)]
+deck3 <- all_lines_1961[seq(3, length(all_lines_1961), by = 4)]
+deck4 <- all_lines_1961[seq(4, length(all_lines_1961), by = 4)]
+
+# Combine into raw data frame (long layout)
+data_1961_raw <- data.frame(deck1 = deck1, deck2 = deck2, deck3 = deck3, deck4 = deck4, stringsAsFactors = FALSE)
+
+# ------------------- 3. Transform and extract variables -------------------
+data_1961_Q4_txt_transformed <- data_1961_raw %>%
+  mutate(
+    year             = 1961,
+    quarter          = 4,
+    Document_id      = "03628",
+    label_identifier = "Survey of Consumer Attitudes and Behavior, Fall 1961",
+
+    age = case_when(
+      substr(deck3, 65, 65) == "0" ~ "21",
+      substr(deck3, 65, 65) == "1" ~ "29.5",
+      substr(deck3, 65, 65) == "2" ~ "37",
+      substr(deck3, 65, 65) == "3" ~ "42",
+      substr(deck3, 65, 65) == "4" ~ "47",
+      substr(deck3, 65, 65) == "5" ~ "52",
+      substr(deck3, 65, 65) == "6" ~ "57",
+      substr(deck3, 65, 65) == "7" ~ "62",
+      substr(deck3, 65, 65) == "8" ~ "70",
+      substr(deck3, 65, 65) == "9" ~ NA,
+      TRUE ~ "error"  # sanity check
+    ),
+
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(substr(deck1, 73, 73)),
+
+    Numerical_Infl_Exp_YR = NA
+  ) %>%
+  select(
+    year, quarter, Document_id, label_identifier,
+    age, Categorical_Infl_Exp_YR, Numerical_Infl_Exp_YR
+  )
+```
+
+### [**1962/Q2 – 03637**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/03637/03637-0001-Codebook.pdf)
+```{r}
+# ------------------- 1. Read raw data -------------------
+file_1962 <- file.path("~", "2804_Inflation", "JanFeb26_WorkingFolder", "Datasets", "Survey_of_Consumer_Attitudes_and_Behavior", "03637", "03637-0001-Data-card_image.txt" )
+all_lines_1962 <- readLines(file_1962)
+
+# ------------------- 2. Resolve 11-line card structure -------------------
+deck1  <- all_lines_1962[seq(1, length(all_lines_1962), by = 11)]
+deck2  <- all_lines_1962[seq(2, length(all_lines_1962), by = 11)]
+deck3  <- all_lines_1962[seq(3, length(all_lines_1962), by = 11)]
+deck4  <- all_lines_1962[seq(4, length(all_lines_1962), by = 11)]
+deck5  <- all_lines_1962[seq(5, length(all_lines_1962), by = 11)]
+deck6  <- all_lines_1962[seq(6, length(all_lines_1962), by = 11)]
+deck7  <- all_lines_1962[seq(7, length(all_lines_1962), by = 11)]
+deck8  <- all_lines_1962[seq(8, length(all_lines_1962), by = 11)]
+deck9  <- all_lines_1962[seq(9, length(all_lines_1962), by = 11)]
+deck10 <- all_lines_1962[seq(10, length(all_lines_1962), by = 11)]
+deck11 <- all_lines_1962[seq(11, length(all_lines_1962), by = 11)]
+
+# Combine into raw data frame (long layout)
+data_1962_raw <- data.frame(deck1  = deck1, deck2  = deck2, deck3  = deck3, deck4  = deck4, deck5  = deck5, deck6  = deck6, deck7  = deck7, deck8  = deck8, deck9  = deck9, deck10 = deck10, deck11 = deck11,stringsAsFactors = FALSE)
+
+# ------------------- 3. Transform and extract variables -------------------
+data_1962_Q1_txt_transformed <- data_1962_raw %>%
+  mutate(
+    year             = 1962,
+    quarter          = 2,
+    Document_id      = "03637",
+    label_identifier = "Survey of Consumer Attitudes and Behavior, Spring 1962",
+
+    age = case_when(
+      substr(deck3, 59, 59) == "1" ~ "21",
+      substr(deck3, 59, 59) == "2" ~ "29.5",
+      substr(deck3, 59, 59) == "3" ~ "39.5",
+      substr(deck3, 59, 59) == "4" ~ "49.5",
+      substr(deck3, 59, 59) == "5" ~ "59.5",
+      substr(deck3, 59, 59) == "6" ~ "70",
+      substr(deck3, 59, 59) == "9" ~ NA,
+      TRUE ~ "error"  # sanity check
+    ),
+
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(substr(deck1, 46, 46)),
+
+    Numerical_Infl_Exp_YR = NA
+  ) %>%
+  select(
+    year, quarter, Document_id, label_identifier,
+    age, Categorical_Infl_Exp_YR, Numerical_Infl_Exp_YR
+  )
+```
+
+### [**1977/Q1 – 08724**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/08724/08724-0001-Codebook.pdf)
+`r create_relative_file_link(1977, 1, "08724")`
+
++ A discrepancy of 2 character positions was noted between the codebook and the dictionary for extracting inflation expectations; dictionary positions were assumed correct and used here. This is likely due to the 'CARD NUMBER' not being included in the dictionary positions.
++ Age is calculated from the last two digits of the birth year (positions 437-438), assuming a "19YY" format. Codes 98/99 treated as NA.
+```{r}
+# ------------------- 1. Read raw data -------------------
+file_08724 <- file.path("~", "2804_Inflation","JanFeb26_WorkingFolder", "Datasets", "Survey_of_Consumer_Attitudes_and_Behavior", "08724", "08724-0001-Data.txt")
+data_1977_Q1_raw <- data.frame(v1 = readLines(file_08724), stringsAsFactors = FALSE)
+
+# ------------------- 2. Extract raw variables -------------------
+data_1977_Q1_subset <- data_1977_Q1_raw %>%
+  transmute(
+    age_raw = substr(v1, 471, 472),
+    group   = substr(v1, 19, 19),
+    Categorical_Infl_Exp_YR = case_when(
+      group == "1" ~ substr(v1, 55, 55),
+      group == "2" ~ substr(v1, 62, 62),
+      TRUE ~ "error"
+    ),
+    Numerical_Infl_Exp_YR_raw = case_when(
+      group == "1" ~ substr(v1, 56, 56),
+      group == "2" ~ substr(v1, 63, 64),
+      TRUE ~ "error"
+    )
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1977_Q1_subset_transformed <- data_1977_Q1_subset %>%
+  mutate(
+    age = transformation_continuous_age(age_raw),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    num_val = suppressWarnings(as.numeric(Numerical_Infl_Exp_YR_raw)),
+    Numerical_Infl_Exp_YR = case_when(
+      is.na(group) ~ NA_character_,
+      group == "2" & num_val %in% c(0, 98, 99) ~ NA_character_,
+      group == "2" & num_val >= 1 & num_val <= 97 ~ as.character(num_val),
+      group == "2" ~ "error",
+      group == "1" ~ primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR_raw),
+      TRUE ~ "error"
+    )
+  ) %>%
+  select(
+    age,
+    Categorical_Infl_Exp_YR,
+    Numerical_Infl_Exp_YR
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1977_Q1_txt_transformed <- data_1977_Q1_subset_transformed %>%
+  mutate(
+    year             = 1977,
+    quarter          = 1,
+    Document_id      = "08724",
+    label_identifier = "Survey of Consumer Attitudes and Behavior, February 1977"
+  )
+```
+
+
+### [**1976/Q4 – 07543**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/07543/07543-0001-Codebook.pdf)
++"error" for one entry for the variable age. Encoding was checked twice but is accurate. Potential Data consistency issue.
+`r create_relative_file_link(1976, 4, "07543")`
+```{r}
+# ------------------- 1. Read raw data -------------------
+file_07543 <- file.path("~", "2804_Inflation", "JanFeb26_WorkingFolder",  "Datasets", "Survey_of_Consumer_Attitudes_and_Behavior", "07543", "07543-0001-Data.txt")
+data_1976_Q4_raw <- data.frame(v1 = readLines(file_07543), stringsAsFactors = FALSE)
+
+# ------------------- 2. Extract raw variables -------------------
+data_1976_Q4_subset <- data_1976_Q4_raw %>%
+  transmute(
+    birthyear_raw = substr(v1, 20, 23),
+    group   = substr(v1, 12, 12),
+
+    Categorical_Infl_Exp_YR = case_when(
+      group == "1" ~ substr(v1, 62, 62),
+      group == "2" ~ substr(v1, 88, 88),
+      TRUE ~ "error"
+    ),
+
+    Numerical_Infl_Exp_YR_raw = case_when(
+      group == "1" ~ substr(v1, 73, 73),
+      group == "2" ~ substr(v1, 99, 99),
+      TRUE ~ "error"
+    )
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1976_Q4_subset_transformed <- data_1976_Q4_subset %>%
+  mutate(
+    age = as.character(1976 - as.numeric(birthyear_raw)),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR),
+    Numerical_Infl_Exp_YR = primary_transform_numerical_infl_exp(Numerical_Infl_Exp_YR_raw)
+  ) %>%
+  select(-group, -Numerical_Infl_Exp_YR_raw, -birthyear_raw)
+
+# ------------------- 4. Add metadata -------------------
+data_1976_Q4_txt_transformed <- data_1976_Q4_subset_transformed %>%
+  mutate(
+    year             = 1976,
+    quarter          = 1,
+    Document_id      = "07543",
+    label_identifier = "Survey of Consumer Attitudes and Behavior, Winter 1976"
+  )
+```
+
+
+### [**1967/Q2 – 03619**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/03619/03619-0001-Codebook.pdf)
+`r create_relative_file_link(1967, 2, "03619")`
+```{r}
+# ------------------- 1. Read raw data -------------------
+# Pfad ggf. anpassen, falls nötig
+file_03619 <- file.path("~", "2804_Inflation", "JanFeb26_WorkingFolder", "Datasets", "Survey_of_Consumer_Attitudes_and_Behavior", "03619", "03619-0001-Data-card_image.txt")
+all_lines_1967_Q2 <- readLines(file_03619)
+
+# ------------------- 2. Resolve 2-line card structure -------------------
+deck1 <- all_lines_1967_Q2[seq(1, length(all_lines_1967_Q2), by = 2)]
+deck2 <- all_lines_1967_Q2[seq(2, length(all_lines_1967_Q2), by = 2)]
+
+# Dataframe erstellen (wir brauchen hier eigentlich nur deck1, da dort Age & Inflation stehen)
+data_1967_Q2_raw <- data.frame(deck1 = deck1, stringsAsFactors = FALSE)
+
+# ------------------- 3. Extract raw variables -------------------
+
+
+data_1967_Q2_subset <- data_1967_Q2_raw %>%
+  transmute(
+    age_raw                   = substr(deck1, 17, 17),
+    Categorical_Infl_Exp_YR_raw = substr(deck1, 27, 27),
+    Numerical_Infl_Exp_YR     = NA
+  )
+
+# ------------------- 4. Transform variables -------------------
+data_1967_Q2_transformed <- data_1967_Q2_subset %>%
+  mutate(
+    age = case_when(
+      age_raw == "1" ~ "21.0", # 18-24
+      age_raw == "2" ~ "29.5", # 25-34
+      age_raw == "3" ~ "39.5", # 35-44
+      age_raw == "4" ~ "49.5", # 45-54
+      age_raw == "5" ~ "59.5", # 55-64
+      age_raw == "6" ~ "65.0", # 65+
+      age_raw == "9" ~ NA_character_,
+      TRUE ~ "error"  # sanity check
+    ),
+    
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR_raw)
+  ) %>%
+  select(age, Categorical_Infl_Exp_YR, Numerical_Infl_Exp_YR)
+
+# ------------------- 5. Add metadata -------------------
+data_1967_Q2_txt_transformed <- data_1967_Q2_transformed %>%
+  mutate(
+    year             = 1967,
+    quarter          = 2,
+    Document_id      = "03619",
+    label_identifier = "Survey of Consumer Attitudes and Behavior, Spring 1967"
+  ) %>%
+  select(year, quarter, Document_id, age, Categorical_Infl_Exp_YR, Numerical_Infl_Exp_YR, label_identifier)
+```
+
+
+### [**1953/Q4 – 03634 (Multi-Deck)**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/03634/03634-0001-Codebook.pdf)
+`r create_relative_file_link(1953, 4, "03634")`
+```{r}
+# ------------------- 1. Read raw data -------------------
+file_1953_Q4 <- file.path("~", "2804_Inflation", "JanFeb26_WorkingFolder", "Datasets", "Survey_of_Consumer_Attitudes_and_Behavior","03634", "03634-0001-Data-card_image.txt")
+all_lines_1953_Q4 <- readLines(file_1953_Q4)
+
+# ------------------- 2. Resolve 3-line card structure -------------------
+deck1 <- all_lines_1953_Q4[seq(1, length(all_lines_1953_Q4), by = 3)]
+deck2 <- all_lines_1953_Q4[seq(2, length(all_lines_1953_Q4), by = 3)]
+deck3 <- all_lines_1953_Q4[seq(3, length(all_lines_1953_Q4), by = 3)]
+
+# Combine into raw data frame (long layout)
+data_1953_Q4_raw <- data.frame(
+  deck1 = deck1,
+  deck2 = deck2,
+  deck3 = deck3,
+  stringsAsFactors = FALSE
+)
+
+# ------------------- 3. Extract raw variables -------------------
+data_1953_Q4_subset <- data_1953_Q4_raw %>%
+  transmute(
+    age_code_raw = substr(deck3, 42, 42),
+    Categorical_Infl_Exp_YR_raw = substr(deck1, 53, 53),
+    Numerical_Infl_Exp_YR_raw = substr(deck1, 54, 54)
+  )
+
+# ------------------- 4. Transform variables -------------------
+data_1953_Q4_transformed <- data_1953_Q4_subset %>%
+  mutate(
+    age = case_when(
+      is.na(age_code_raw) | age_code_raw %in% c(" ", "-") ~ NA_character_,
+      age_code_raw == "1" ~ "22.5",
+      age_code_raw == "2" ~ "29.5",
+      age_code_raw == "3" ~ "39.5",
+      age_code_raw == "4" ~ "49.5",
+      age_code_raw == "5" ~ "59.5",
+      age_code_raw == "6" ~ "70.0",
+      TRUE ~ "error"
+    ),
+
+    Categorical_Infl_Exp_YR = case_when(
+      is.na(Categorical_Infl_Exp_YR_raw) ~ NA_character_,
+      Categorical_Infl_Exp_YR_raw %in% c("-", "9") ~ NA_character_,
+      Categorical_Infl_Exp_YR_raw == "6" ~ "2",
+      Categorical_Infl_Exp_YR_raw == "7" ~ "3",
+      Categorical_Infl_Exp_YR_raw == "8" ~ "4",
+      Categorical_Infl_Exp_YR_raw %in% c("1", "2", "3", "4", "5") ~ Categorical_Infl_Exp_YR_raw,
+      TRUE ~ "error"
+    ),
+
+    Numerical_Infl_Exp_YR = case_when(
+      is.na(Numerical_Infl_Exp_YR_raw) ~ NA_character_,
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR_raw == "1" ~ "11",
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR_raw == "2" ~ "1",
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR_raw == "4" ~ "-1",
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR_raw == "5" ~ "-11",
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR_raw %in% c("0", "9", "-") ~ NA_character_,
+
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR_raw == "1" ~ "15",
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR_raw == "2" ~ "5.5",
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR_raw == "4" ~ "-5.5",
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR_raw == "5" ~ "-15",
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR_raw %in% c("0", "9", "-") ~ NA_character_,
+
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR_raw == "1" ~ "20",
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR_raw == "2" ~ "10",
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR_raw == "4" ~ "-1",
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR_raw == "5" ~ "-20",
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR_raw %in% c("0", "9", "-") ~ NA_character_,
+
+      TRUE ~ "error"
+    )
+  ) %>%
+  select(age, Categorical_Infl_Exp_YR, Numerical_Infl_Exp_YR)
+
+# ------------------- 5. Add metadata -------------------
+data_1953_Q4_txt_transformed <- data_1953_Q4_transformed %>%
+  mutate(
+    year             = 1953,
+    quarter          = 4,
+    Document_id      = "03634",
+    label_identifier = "Survey of Consumer Attitudes and Behavior, Fall 1953: Purchase Decisions"
+  ) %>%
+  select(year, quarter, Document_id, age, Categorical_Infl_Exp_YR, Numerical_Infl_Exp_YR, label_identifier)
+```
+
+
+### [**1960/Q2 – 03633 (Multi-Deck)**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/03633/03633-0001-Codebook.pdf)
++"error" for one entry for the variable age. Encoding was checked twice but is accurate. Potential Data consistency issue.  
+`r create_relative_file_link(1960, 2, "03633")`
+```{r}
+# ------------------- 1. Read raw data -------------------
+file_1960_Q2 <- file.path("~", "2804_Inflation", "JanFeb26_WorkingFolder", "Datasets", "Survey_of_Consumer_Attitudes_and_Behavior", "03633", "03633-0001-Data-card_image.txt")
+
+all_lines_1960_Q2 <- readLines(file_1960_Q2)
+
+# ------------------- 2. Resolve 7-line card structure -------------------
+deck1 <- all_lines_1960_Q2[seq(1, length(all_lines_1960_Q2), by = 7)]
+deck2 <- all_lines_1960_Q2[seq(2, length(all_lines_1960_Q2), by = 7)]
+
+# Combine into raw data frame (long layout)
+data_1960_Q2_raw <- data.frame(
+  deck1 = deck1,
+  deck2 = deck2,
+  stringsAsFactors = FALSE
+)
+
+# ------------------- 3. Extract raw variables -------------------
+data_1960_Q2_subset <- data_1960_Q2_raw %>%
+  transmute(
+    age_code_raw = substr(deck2, 43, 43),
+    Categorical_Infl_Exp_YR_raw = substr(deck1, 30, 30),
+    Numerical_Infl_Exp_YR = NA  # no numerical expectations in this wave
+  )
+
+# ------------------- 4. Transform variables -------------------
+data_1960_Q2_transformed <- data_1960_Q2_subset %>%
+  mutate(
+age = case_when(
+  is.na(age_code_raw) | age_code_raw %in% c(" ", "-") ~ NA_character_,
+  age_code_raw == "1" ~ "21",
+  age_code_raw == "2" ~ "29.5",
+  age_code_raw == "3" ~ "39.5",
+  age_code_raw == "4" ~ "49.5",
+  age_code_raw == "5" ~ "59.5",
+  age_code_raw == "6" ~ "65",
+  age_code_raw == "9" ~ NA_character_,
+  TRUE ~ "error"
+),
+
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR_raw)
+  ) %>%
+  select(age, Categorical_Infl_Exp_YR, Numerical_Infl_Exp_YR)
+
+# ------------------- 5. Add metadata -------------------
+data_1960_Q2_txt_transformed <- data_1960_Q2_transformed %>%
+  mutate(
+    year             = 1960,
+    quarter          = 2,
+    Document_id      = "03633",
+    label_identifier = "Survey of Consumer Attitudes and Behavior, Spring 1960"
+  ) %>%
+  select(year, quarter, Document_id, age, Categorical_Infl_Exp_YR, Numerical_Infl_Exp_YR, label_identifier)
+```
+
+
+### [**1958/Q2 – 03631 (Multi-Deck)**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/03631/03631-0001-Codebook.pdf)
+`r create_relative_file_link(1958, 2, "03631")`
+```{r}
+# ------------------- 1. Read raw data -------------------
+file_1958_Q2 <- file.path("~", "2804_Inflation", "JanFeb26_WorkingFolder", "Datasets","Survey_of_Consumer_Attitudes_and_Behavior","03631", "03631-0001-Data-card_image.txt")
+all_lines_1958_Q2 <- readLines(file_1958_Q2)
+
+# ------------------- 2. Resolve 5-line card structure -------------------
+deck1 <- all_lines_1958_Q2[seq(1, length(all_lines_1958_Q2), by = 5)]
+deck3 <- all_lines_1958_Q2[seq(3, length(all_lines_1958_Q2), by = 5)]
+
+# Combine into raw data frame
+data_1958_Q2_raw <- data.frame(
+  deck1 = deck1,
+  deck3 = deck3,
+  stringsAsFactors = FALSE
+)
+
+# ------------------- 3. Extract raw variables -------------------
+data_1958_Q2_subset <- data_1958_Q2_raw %>%
+  transmute(
+    age_code_raw                = substr(deck3, 41, 41),
+    Categorical_Infl_Exp_YR_raw = substr(deck1, 47, 47),
+    Numerical_Infl_Exp_YR_raw   = substr(deck1, 48, 48)
+  )
+
+# ------------------- 4. Transform variables -------------------
+data_1958_Q2_transformed <- data_1958_Q2_subset %>%
+  mutate(
+    age = case_when(
+      is.na(age_code_raw) | age_code_raw %in% c(" ", "-") ~ NA_character_,
+      age_code_raw == "1" ~ "19.0",
+      age_code_raw == "2" ~ "22.5",
+      age_code_raw == "3" ~ "27.0",
+      age_code_raw == "4" ~ "32.0",
+      age_code_raw == "5" ~ "37.0",
+      age_code_raw == "6" ~ "42.0",
+      age_code_raw == "7" ~ "47.0",
+      age_code_raw == "8" ~ "52.0",
+      age_code_raw == "9" ~ "57.0",
+      age_code_raw == "0" ~ "62.0",
+      age_code_raw == "&" ~ "65.0",
+      TRUE ~ "error"
+    ),
+
+    Categorical_Infl_Exp_YR = case_when(
+      is.na(Categorical_Infl_Exp_YR_raw) | Categorical_Infl_Exp_YR_raw %in% c(" ", "-") ~ NA_character_,
+      Categorical_Infl_Exp_YR_raw == "6" ~ "2",
+      Categorical_Infl_Exp_YR_raw == "7" ~ "3",
+      Categorical_Infl_Exp_YR_raw == "8" ~ "4",
+      Categorical_Infl_Exp_YR_raw %in% c("1", "2", "3", "4", "5") ~ Categorical_Infl_Exp_YR_raw,
+      Categorical_Infl_Exp_YR_raw %in% c("0", "9") ~ NA_character_,
+      TRUE ~ "error"
+    ),
+
+    Numerical_Infl_Exp_YR = case_when(
+      is.na(Numerical_Infl_Exp_YR_raw) | Numerical_Infl_Exp_YR_raw %in% c(" ", "-") ~ NA_character_,
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR_raw == "1" ~ "11",
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR_raw == "2" ~ "1",
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR_raw == "4" ~ "-1",
+      perc_transform_mode == "lower" & Numerical_Infl_Exp_YR_raw == "5" ~ "-11",
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR_raw == "1" ~ "11",
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR_raw == "2" ~ "5.5",
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR_raw == "4" ~ "-5.5",
+      perc_transform_mode == "mean" & Numerical_Infl_Exp_YR_raw == "5" ~ "-11",
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR_raw == "1" ~ "11",
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR_raw == "2" ~ "10",
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR_raw == "4" ~ "-10",
+      perc_transform_mode == "upper" & Numerical_Infl_Exp_YR_raw == "5" ~ "-11",
+      Numerical_Infl_Exp_YR_raw %in% c("0", "9") ~ NA_character_,
+      TRUE ~ "error"
+    )
+  ) %>%
+  select(age, Categorical_Infl_Exp_YR, Numerical_Infl_Exp_YR)
+
+# ------------------- 5. Add metadata -------------------
+data_1958_Q2_txt_transformed <- data_1958_Q2_transformed %>%
+  mutate(
+    year             = 1958,
+    quarter          = 2,
+    Document_id      = "03631",
+    label_identifier = "The Spring 1958 Periodic Survey of Consumer Attitudes and Behavior"
+  ) %>%
+  select(year, quarter, Document_id, age, Categorical_Infl_Exp_YR, Numerical_Infl_Exp_YR, label_identifier)
+```
+
+
+### [**1961/Q2 – 03629**](Datasets/Survey_of_Consumer_Attitudes_and_Behavior/03629/03629-0001-Codebook.pdf)
+`r create_relative_file_link(1961, 2, "03629")`
+```{r}
+# ------------------- 1. Read raw data -------------------
+file_1961_Q2 <- file.path("~", "2804_Inflation", "JanFeb26_WorkingFolder", "Datasets", "Survey_of_Consumer_Attitudes_and_Behavior","03629", "03629-0001-Data-card_image.txt")
+all_lines_1961_Q2 <- readLines(file_1961_Q2)
+
+# ------------------- 2. Resolve 7-line card structure -------------------
+deck1 <- all_lines_1961_Q2[seq(1, length(all_lines_1961_Q2), by = 7)]
+deck2 <- all_lines_1961_Q2[seq(2, length(all_lines_1961_Q2), by = 7)]  
+deck3 <- all_lines_1961_Q2[seq(3, length(all_lines_1961_Q2), by = 7)]
+
+# Combine into raw data frame
+data_1961_Q2_raw <- data.frame(
+  deck1 = deck1,
+  deck2 = deck2,
+  deck3 = deck3,
+  stringsAsFactors = FALSE
+)
+
+# ------------------- 3. Extract raw variables -------------------
+data_1961_Q2_subset <- data_1961_Q2_raw %>%
+  transmute(
+    age_code_raw               = substr(deck3, 55, 55),
+    Categorical_Infl_Exp_YR_raw = substr(deck1, 53, 53),
+    Numerical_Infl_Exp_YR       = NA  # no numerical expectations in this wave
+  )
+
+# ------------------- 4. Transform variables -------------------
+data_1961_Q2_transformed <- data_1961_Q2_subset %>%
+  mutate(
+    age = case_when(
+      is.na(age_code_raw) | age_code_raw %in% c(" ", "-") ~ NA_character_,
+      age_code_raw == "0" ~ "21.0",
+      age_code_raw == "1" ~ "29.5",
+      age_code_raw == "2" ~ "37.0",
+      age_code_raw == "3" ~ "42.0",
+      age_code_raw == "4" ~ "47.0",
+      age_code_raw == "5" ~ "52.0",
+      age_code_raw == "6" ~ "57.0",
+      age_code_raw == "7" ~ "62.0",
+      age_code_raw == "8" ~ "67.5",
+      age_code_raw == "9" ~ NA_character_,
+      TRUE ~ "error"
+    ),
+
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(Categorical_Infl_Exp_YR_raw)
+  ) %>%
+  select(age, Categorical_Infl_Exp_YR, Numerical_Infl_Exp_YR)
+
+# ------------------- 5. Add metadata -------------------
+data_1961_Q2_txt_transformed <- data_1961_Q2_transformed %>%
+  mutate(
+    year             = 1961,
+    quarter          = 2,
+    Document_id      = "03629",
+    label_identifier = "Surveys of Consumer Attitudes And Behavior, Spring 1961"
+  ) %>%
+  select(year, quarter, Document_id, age, Categorical_Infl_Exp_YR, Numerical_Infl_Exp_YR, label_identifier)
+```
+
+
+
+
+## Survey of Consumer finances 
+
+### [**1955/Q1 – 03600**](Datasets/Survey_of_Consumer_Finances/ICPSR_03600/03600-0001-Codebook.pdf)
+```{r}
+# No question about inflation expectation
+```
+
+### [**1961/Q1 – 07441**](Datasets/Survey_of_Consumer_Finances/ICPSR_07441/07441-0001-Codebook.pdf)
+```{r}
+# ------------------- 1. Read raw data -------------------
+file_07441 <- "~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Finances/ICPSR_07441/DS0001/07441-0001-Data.txt"
+data_1961_Q1_raw <- data.frame(v1 = readLines(file_07441), stringsAsFactors = FALSE)
+
+# ------------------- 2. Extract raw variables -------------------
+data_1961_Q1_subset <- data_1961_Q1_raw %>%
+  transmute(
+    age                     = substr(v1, 107, 108),   # V61: AGE FR LISTING BOX
+    Categorical_Infl_Exp_YR = substr(v1, 27, 27),     # V16: Q.A7 PRICES UP/STABLE
+    Numerical_Infl_Exp_YR   = NA                     # keine numerische Angabe vorhanden
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1961_Q1_transformed <- data_1961_Q1_subset %>%
+  mutate(
+    age = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(as.numeric(Categorical_Infl_Exp_YR))
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1961_Q1_final <- data_1961_Q1_transformed %>%
+  mutate(
+    year             = 1961,
+    quarter          = 1,
+    Document_id      = "07441",
+    label_identifier = "Survey of Consumer Finances, Q1 1961"
+  )
+```
+
+### [**1962/Q1 – 07442**](Datasets/Survey_of_Consumer_Finances/ICPSR_07442/07442-0001-Codebook.pdf)
+```{r}
+# ------------------- 1. Read raw data -------------------
+file_07442 <- "~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Finances/ICPSR_07442/DS0001/07442-0001-Data.txt"
+data_1962_Q1_raw <- data.frame(v1 = readLines(file_07442), stringsAsFactors = FALSE)
+
+# ------------------- 2. Extract raw variables -------------------
+data_1962_Q1_subset <- data_1962_Q1_raw %>%
+  transmute(
+    age                     = substr(v1, 105, 106),  # V70: AGE OF HEAD - concrete
+    Categorical_Infl_Exp_YR = substr(v1, 22, 22),    # V13: Q.A6. PRICES NEXT YEAR
+    Numerical_Infl_Exp_YR   = NA # keine numerische Variable vorhanden
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1962_Q1_transformed <- data_1962_Q1_subset %>%
+  mutate(
+    age                     = transformation_continuous_age(age),
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(as.numeric(Categorical_Infl_Exp_YR))
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1962_Q1_final <- data_1962_Q1_transformed %>%
+  mutate(
+    year             = 1962,
+    quarter          = 1,
+    Document_id      = "07442",
+    label_identifier = "Survey of Consumer Finances, Q1 1962"
+  )
+```
+
+### [**1963/Q1 – 07443**](Datasets/Survey_of_Consumer_Finances/ICPSR_07443/07443-0001-Codebook.pdf)
+```{r}
+# ------------------- 1. Read raw data -------------------
+file_07443 <- "~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Finances/ICPSR_07443/DS0001/07443-0001-Data.txt"
+data_1963_Q1_raw <- data.frame(v1 = readLines(file_07443), stringsAsFactors = FALSE)
+
+# ------------------- 2. Extract raw variables -------------------
+data_1963_Q1_subset <- data_1963_Q1_raw %>%
+  transmute(
+    age                     = substr(v1, 98, 99),     # V55: AGE HD SU (ACT AGE)
+    Categorical_Infl_Exp_YR = substr(v1, 686, 686),  # V387: QA12 PRICES UP/DOWN
+    Numerical_Infl_Exp_YR   = NA
+  )
+
+# ------------------- 3. Transform variables -------------------
+data_1963_Q1_transformed <- data_1963_Q1_subset %>%
+  mutate(
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(as.numeric(Categorical_Infl_Exp_YR))
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1963_Q1_final <- data_1963_Q1_transformed %>%
+  mutate(
+    year             = 1963,
+    quarter          = 1,
+    Document_id      = "07443",
+    label_identifier = "Survey of Consumer Finances, Q1 1963"
+  )
+```
+
+
+### [**1959/Q1 – 03618**](Datasets/Survey_of_Consumer_Finances/ICPSR_03618/03618-0001-Codebook.pdf)
+```{r}
+# ------------------- 1. Read raw data -------------------
+file_1959_Q1 <- file.path("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Survey_of_Consumer_Finances/ICPSR_03618/DS0001", "03618-0001-Data-card_image.txt")
+all_lines_1959_Q1 <- readLines(file_1959_Q1)
+
+# ------------------- 2. Resolve 12-line card structure -------------------
+deck0 <- all_lines_1959_Q1[seq(10, length(all_lines_1959_Q1), by = 12)]
+deckT <- all_lines_1959_Q1[seq(12, length(all_lines_1959_Q1), by = 12)]
+
+data_1959_Q1_raw <- data.frame(deck0 = deck0, deckT = deckT, stringsAsFactors = FALSE)
+
+# ------------------- 3. Extract and Transform variables -------------------
+data_1959_Q1_transformed <- data_1959_Q1_raw %>%
+  transmute(
+    age_raw = substr(deckT, 65, 65),
+    cat_raw = substr(deck0, 27, 27),
+    
+    age = case_when(
+      is.na(age_raw) | age_raw %in% c(" ", "-") ~ NA_character_,
+      age_raw == "1" ~ "21",
+      age_raw == "2" ~ "29.5",
+      age_raw == "3" ~ "39.5",
+      age_raw == "4" ~ "49.5",
+      age_raw == "5" ~ "59.5",
+      age_raw == "6" ~ "65",
+      age_raw == "9" ~ NA_character_,
+      TRUE ~ "error"
+    ),
+    
+    Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(cat_raw),
+    Numerical_Infl_Exp_YR = NA
+  )
+
+# ------------------- 4. Add metadata -------------------
+data_1959_Q1_final <- data_1959_Q1_transformed %>%
+  mutate(
+    year        = 1959,
+    quarter     = 1,
+    Document_id = "03618"
+  )
+```
+
+The following survey waves from the 1950s, namely 1950 Q1, 1951 Q1, 1952 Q1, 1954 Q1, 1956 Q1, 1957 Q1, 1958 Q1, are only available in plain .txt format. For these files, no setup files such as .do or .dct are provided. In addition, the codebooks do not contain a clearly structured dictionary that would allow the identification of variable positions or deck assignments. As a result, it is not possible to determine with sufficient reliability which character positions correspond to the relevant variables. These datasets were therefore excluded from the extraction process.
+
+# Final Merging and Standardization for Excel
+
+```{r}
+## Create List of All Processed DataFrames
+list_of_all_dta_dfs <- list(
+  data_1957_Q2_final,
+  data_1960_Q1_subset_transformed,
+  data_1964_Q1_final,
+  data_1965_Q1_final,
+  data_1966_Q1_final,
+  data_1967_Q1_final,
+  data_1969_Q1_final,
+  data_1970_Q1_final,
+  data_1971_Q1_final,
+  data_1973_Q1_final,
+  data_1973_Q2_final,
+  data_1973_Q3_final,
+  data_1973_Q4_final,
+  data_1974_Q1_final,
+  data_1974_Q2_final,
+  data_1974_Q3_final,
+  data_1974_Q4_final,
+  data_1975_Q1_final,
+  data_1975_Q2_final,
+  data_1975_Q3_final,
+  data_1975_Q4_final,
+  data_1976_Q2_final,
+  data_1976_Q3_final,
+  data_1976_Q4_final,
+  data_1977_Q2_final,
+  data_1977_Q3_final,
+  data_1977_Q4_final
+)
+
+list_of_all_txt_dfs <- list(
+  data_1953_Q4_txt_transformed,
+  data_1958_Q2_txt_transformed,
+  data_1960_Q2_txt_transformed,
+  data_1961_Q1_final,
+  data_1961_Q2_txt_transformed,
+  data_1961_Q4_txt_transformed,
+  data_1962_Q1_final,
+  data_1962_Q1_txt_transformed,
+  data_1962_Q3_txt_transformed,
+  data_1962_Q4_txt_transformed,
+  data_1963_Q1_final,
+  data_1963_Q3_txt_transformed,
+  data_1966_transformed,          
+  data_1967_Q2_txt_transformed,
+  data_1976_Q4_txt_transformed,
+  data_1977_Q1_txt_transformed
+)
+
+# Adding file type indicator
+list_of_dta_dfs_with_type <- map(list_of_all_dta_dfs, ~ .x %>% mutate(file_type_indicator = "dta"))
+list_of_txt_dfs_with_type <- map(list_of_all_txt_dfs, ~ .x %>% mutate(file_type_indicator = "txt"))
+
+list_of_all_dfs <- c(list_of_dta_dfs_with_type, list_of_txt_dfs_with_type)
+
+## Merge All Standardized DataFrames --> This is now our final pre 1978 data file!
+Pre_1978_Data_Cleaned <- bind_rows(list_of_all_dfs)
+
+## Save Dataset
+saveRDS(Pre_1978_Data_Cleaned, "~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Pre_1978_Data/Pre_1978_Data_Cleaned.rds")
+```
+
+# Data Check Checkpoint
+Up until this point, the data `Pre_1978_Data_Cleaned_Cleaned.rds` for time points before 1978 has been extracted and cleaned. In this context, "cleaned" refers to the initial mapping and transformation functions defined at the beginning of this document. To ensure the integrity and accuracy of the extraction process we implement several distinct validation checks creating the following variables.
+
++ 1. `errors `identifies whether any `error` flags were generated during the transformation process
+
++ 2. `avg_age`: Represents the mean age of those entries that have a numeric value, the mean should typically fall within the 35–50 year range
+
++ 3. `pct_na_age`: Monitors the percentage of `NA`'s for the variable `age`
+
++ 4. `avg_infl`: Represents the mean numerical inflation expectation of those entries that have a numeric value, used for validation against historical economic trends
+
++ 5. `pct_na_num`: Monitors the percentages of `NA`'s, i.e. that percentage of responses that did not result in a positive categorical inflation expectation, so that no question for a numerical inflation expectation was asked
+
+
+
+```{r}
+audit_data <- Pre_1978_Data_Cleaned %>%
+  mutate(
+    age_num = as.numeric(ifelse(age == "error", NA, age)),
+    num_val = as.numeric(ifelse(Numerical_Infl_Exp_YR == "error", NA, Numerical_Infl_Exp_YR))
+  )
+
+audit_report <- audit_data %>%
+  group_by(year, quarter, Document_id) %>%
+  summarise(
+    n = n(),
+    errors = sum(age == "error" | 
+                 Categorical_Infl_Exp_YR == "error" | 
+                 Numerical_Infl_Exp_YR == "error", na.rm = TRUE),
+    avg_age = round(mean(age_num, na.rm = TRUE), 1),
+    avg_infl = round(mean(num_val, na.rm = TRUE), 2),
+    pct_na_num = round(sum(is.na(Numerical_Infl_Exp_YR)) / n() * 100, 1),
+    pct_na_age = round(sum(is.na(age)) / n() * 100, 1),
+    .groups = "drop"
+  )
+
+red_rows <- which(audit_report$errors >= 1 | audit_report$pct_na_age > 20)
+
+kable(audit_report, caption = "Quality Audit: Extraction & Plausibility Check") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>%
+  row_spec(red_rows, color = "red")
+```
+
+Tabelle der Unique Values für Categorical_Infl_Exp_YR
+```{r}
+unique_cats_df <- Pre_1978_Data_Cleaned %>%
+  group_by(year, quarter, Document_id) %>%
+  summarise(
+    `Unique Categorical Values` = paste(sort(unique(na.omit(Categorical_Infl_Exp_YR))), collapse = ", "),
+    `NA Count` = sum(is.na(Categorical_Infl_Exp_YR)),
+    .groups = "drop"
+  )
+
+red_rows_indices <- which(
+  grepl("\\b7\\b", unique_cats_df$`Unique Categorical Values`) | 
+  unique_cats_df$`NA Count` > 200
+)
+
+kable(unique_cats_df, caption = "Unique Values der kategorialen Inflationserwartungen pro Quartal") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE) %>%
+  row_spec(red_rows_indices, color = "red", bold = TRUE) %>%
+  scroll_box(height = "400px")
+```
+
+### Plot der Verteilung der kategorialen Antworten über die Quartale  {.tabset .tabset-dropdown}
+```{r cat-plots-1, results='asis', echo=FALSE, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(tidyr)
+
+# Extrahieren aller verfügbaren Jahre
+years_available <- sort(unique(Pre_1978_Data_Cleaned$year))
+
+# Schleife über alle Jahre, um dynamisch Tabs zu generieren
+for (yr in years_available) {
+  
+  # Erstellt einen neuen Tab/Dropdown-Eintrag für jedes Jahr
+  cat("#### Jahr", yr, "\n\n")
+  
+  # Plot für das jeweilige Jahr generieren
+  p <- Pre_1978_Data_Cleaned %>%
+    filter(year == yr) %>%
+    # Echte Extraktions-"errors" filtern wir heraus, NAs behalten wir
+    filter(Categorical_Infl_Exp_YR != "error" | is.na(Categorical_Infl_Exp_YR)) %>%
+    # NAs in einen lesbaren String umwandeln, damit ggplot sie als Kategorie plottet
+    mutate(Cat_Plot_Var = replace_na(Categorical_Infl_Exp_YR, "Missing (NA)")) %>%
+    ggplot(aes(x = Cat_Plot_Var, fill = as.factor(quarter))) +
+    geom_bar(position = "dodge", color = "black", alpha = 0.8) +
+    facet_wrap(~ quarter, labeller = label_both) + # Aufteilen nach Quartalen im selben Jahr
+    scale_fill_brewer(palette = "Blues") +
+    theme_minimal() +
+    labs(
+      title = paste("Verteilung der kategorialen Erwartungen im Jahr", yr),
+      x = "Kategoriale Antwort (1=Up, 3=Same, 5=Down, Missing)",
+      y = "Absolute Häufigkeit",
+      fill = "Quartal"
+    ) +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(face = "bold", hjust = 0.5),
+      axis.text.x = element_text(angle = 45, hjust = 1) # Leicht gedreht für bessere Lesbarkeit
+    )
+  
+  print(p)
+  cat("\n\n")
+}
+```
+
+### Plot der Verteilung der Numerischen Antworten über die Quartale  {.tabset .tabset-dropdown}
+```{r cat-plots-2, results='asis', echo=FALSE, message=FALSE, warning=FALSE}
+years_available <- sort(unique(Pre_1978_Data_Cleaned$year))
+
+for (yr in years_available) {
+  
+  cat("####", yr, "\n\n")
+  
+  p <- Pre_1978_Data_Cleaned %>%
+    filter(year == yr) %>%
+    filter(Numerical_Infl_Exp_YR != "error" | is.na(Numerical_Infl_Exp_YR)) %>%
+    mutate(
+      # NAs ersetzen
+      Num_Plot_Var = replace_na(as.character(Numerical_Infl_Exp_YR), "Missing (NA)"),
+      # Faktor erstellen, um korrekte numerische Sortierung auf der X-Achse zu erzwingen
+      Num_Plot_Var = factor(Num_Plot_Var, levels = c(sort(as.numeric(unique(na.omit(Numerical_Infl_Exp_YR)))), "Missing (NA)"))
+    ) %>%
+    ggplot(aes(x = Num_Plot_Var, fill = as.factor(quarter))) +
+    geom_bar(position = "dodge", color = "black", alpha = 0.8) +
+    facet_wrap(~ quarter, labeller = label_both) + 
+    scale_fill_brewer(palette = "Greens") +
+    # NEU: Maßgeschneiderte, übersichtliche Achsenbeschriftung
+    scale_x_discrete(breaks = function(lvl) {
+      num_lvl <- suppressWarnings(as.numeric(lvl))
+      # Wir definieren exakt, welche Zahlen wir als Beschriftung sehen wollen:
+      desired_breaks <- c(0, 5, 10, 20, 30, 40, 50, 65, 80, 95)
+      
+      # Behalte das Label nur, wenn es in unseren desired_breaks liegt oder "Missing (NA)" ist
+      lvl[lvl == "Missing (NA)" | (!is.na(num_lvl) & num_lvl %in% desired_breaks)]
+    }) +
+    theme_minimal() +
+    labs(
+      title = paste("Verteilung der numerischen Erwartungen im Jahr", yr),
+      x = "Numerische Antwort (%)",
+      y = "Absolute Häufigkeit",
+      fill = "Quartal"
+    ) +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(face = "bold", hjust = 0.5),
+      axis.text.x = element_text(angle = 45, hjust = 1) 
+    )
+  
+  print(p)
+  cat("\n\n")
+}
+```
+
+### Verteilung der Variable Age über die Quartale {.tabset .tabset-dropdown}
+```{r cat-plots-3, results='asis', echo=FALSE, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(tidyr)
+
+years_available <- sort(unique(Pre_1978_Data_Cleaned$year))
+
+for (yr in years_available) {
+  
+  cat("####", yr, "\n\n")
+  
+  p <- Pre_1978_Data_Cleaned %>%
+    filter(year == yr) %>%
+    filter(age != "error" | is.na(age)) %>%
+    mutate(
+      # 1. Alter in Zahl umwandeln (um "21.0" und "21" zu "21" zu vereinen) und NAs ersetzen
+      Age_Plot_Var = replace_na(as.character(as.numeric(age)), "Missing (NA)"),
+      
+      # 2. Faktor erstellen: WICHTIG - as.numeric() VOR unique() anwenden!
+      Age_Plot_Var = factor(Age_Plot_Var, levels = c(as.character(sort(unique(as.numeric(na.omit(age))))), "Missing (NA)"))
+    ) %>%
+    ggplot(aes(x = Age_Plot_Var, fill = as.factor(quarter))) +
+    geom_bar(position = "dodge", color = "black", alpha = 0.8) +
+    facet_wrap(~ quarter, labeller = label_both) + 
+    scale_fill_brewer(palette = "Oranges") +
+    # Einfache 10er-Schritte für die Alters-Achse
+    scale_x_discrete(breaks = function(x) {
+      x_num <- suppressWarnings(as.numeric(x))
+      # Nur "Missing (NA)" oder Zahlen, die glatt durch 10 teilbar sind (10, 20, 30, ...)
+      keep <- x == "Missing (NA)" | (!is.na(x_num) & x_num %% 10 == 0)
+      return(x[keep])
+    }) +
+    theme_minimal() +
+    labs(
+      title = paste("Altersverteilung der Befragten im Jahr", yr),
+      x = "Alter (Jahre)",
+      y = "Absolute Häufigkeit",
+      fill = "Quartal"
+    ) +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(face = "bold", hjust = 0.5),
+      axis.text.x = element_text(angle = 45, hjust = 1) 
+    )
+  
+  print(p)
+  cat("\n\n")
+}
+```
+
+
+# Merging with Post 1977 Data
+Survey data starting from Q1 1978 is available for download as a CSV file directly from the Michigan Survey of Consumers website. In the following we read this CSV file, standardize the variables to match the historical data schema, and merges it with the pre-1978 dataset. This results in a single, complete dataset ready for further transformation. The extracted variables `PX1Q1` which representets our variable `Categorical_Infl_Exp_YR` the varibale `PX1Q2` which represents our variable `Numerical_Infl_Exp_YR` and `AGE` which represents our variable `age`. 
+
+The data can be downloaded here
++ Download page: https://sda.umsurvey.org/sda-public/cgi-bin/hsda2?setupfile=harcsda&datasetname=sca&ui=2&action=subset
++ Inflation expectation variable explanation: https://sda.umsurvey.org/sca/Doc/sca0002.htm#5.HEADINGn 
+
+# Integration of Post-1977 Survey Data
+Survey data from the first quarter of 1978 onwards is provided by the Michigan Survey of Consumers in a standardized CSV format. To ensure a consistent time series, we perform a validation check to confirm the data has been successfully downloaded and contains observations before initiating the transformation pipeline.
+
+The following table summarizes the mapping of the original Michigan Survey variables to our standardized research schema:
+
+```{r post1978-mapping-table, echo=FALSE, message=FALSE, warning=FALSE}
+# Mapping data frame for the Post-1978 variables
+post1978_mapping <- data.frame(
+  "Our Research Variable" = c("age", "Categorical_Infl_Exp_YR", "Numerical_Infl_Exp_YR"),
+  "Original Variable by M&N" = c("AGE", "PX1Q1", "PX1"),
+  "Description" = c(
+    "Respondent's age in years.",
+    "Categorical price expectations (Up, Down, Same, DK).",
+    "Quantitative inflation estimate (percentage)."
+  )
+)
+
+knitr::kable(post1978_mapping, caption = "Variable Mapping for Post-1978 Data") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = TRUE)
+```
+First, we verify the physical existence of the source file and ensure it contains valid observations to prevent processing errors.
+```{r}
+file_path <- "~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Post_1978_Data/Post1978.csv"
+data_loaded <- FALSE
+
+# 1. Physical existence check
+if (file.exists(file_path)) {
+  temp_raw <- read.csv(file_path)
+  
+  # 2. Content check (Is it empty?)
+  if (nrow(temp_raw) > 0) {
+    message(paste("Validation successful:", nrow(temp_raw), "observations found."))
+    data_loaded <- TRUE
+  } else {
+    warning("Validation failed: File exists but is empty (0 rows).")
+  }
+} else {
+  stop("File error: The specified CSV file does not exist.")
+}
+```
+
+Following validation, raw variables are mapped to the target schema. Custom functions transform `age` and `Categorical_Infl_Exp_YR`, while `Numerical_Infl_Exp_YR` values 98 and 99 are recoded to NA as stated in the variable description of the Michigan Survey of Consumers website
+```{r}
+if (exists("data_loaded") && data_loaded) {
+  
+  # 1. Transform Post-1978 Data
+  Post_1978_Data_cleaned <- temp_raw %>%
+    transmute(
+      year = as.numeric(substr(YYYYQ, 1, 4)),
+      quarter = as.numeric(substr(YYYYQ, 5, 5)),
+      file_type_indicator = "csv",
+      Document_id = "Post1978",
+      age = transformation_continuous_age(AGE),
+      Categorical_Infl_Exp_YR = primary_transform_categorical_infl_exp(PX1Q1),
+      # Already numeric
+      Numerical_Infl_Exp_YR = as.numeric(ifelse(PX1 %in% c(98, 99), NA, PX1))
+    )
+
+  # 2. Save cleaned Post-1978 dataset individually
+  saveRDS(Post_1978_Data_cleaned, "~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Post_1978_Data/Post_1978_Data_cleaned.rds")
+
+  # 3. Align types and Merge
+  # We convert the historical numerical column to numeric to match the modern data
+  Full_Survey_Data_Cleaned <- Pre_1978_Data_Cleaned %>%
+    mutate(Numerical_Infl_Exp_YR = as.numeric(Numerical_Infl_Exp_YR)) %>%
+    bind_rows(Post_1978_Data_cleaned)
+
+  # 4. Save the final integrated dataset
+  saveRDS(Full_Survey_Data_Cleaned, "~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/Full_Survey_Data/Full_Survey_Cleaned.rds")
+}
+```
+
+# Data Checkpoint: Conclusion
+The final output of this document is the consolidated dataset `Full_Survey_Data_Cleaned.rds`. This file merges all processed waves from 1953 to the present into a single standardized format. The variables year, quarter, `Document_id`, `file_type_indicator`, `age`, `Categorical_Infl_Exp_YR`, and `Numerical_Infl_Exp_YR` have been cleaned to ensure their values represent substantive survey information.
+
+Consequently, the dataset is fully prepared to be used for the adjustments explained by Curtin (1995).

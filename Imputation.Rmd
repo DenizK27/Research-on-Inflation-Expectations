@@ -1,0 +1,128 @@
+---
+title: "Phase III:Distributional Imputation (Preliminary, To be used with caution!)"
+author: "Deniz Korkmaz"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: united
+    highlight: tango
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+all_data <- readRDS("~/2804_Inflation/JanFeb26_WorkingFolder/Datasets/cleansed_inflation_data.rds")
+```
+
+```{r}
+# --- DER FIX: DATENTYPEN KORRIGIEREN ---
+
+# 1. Daten laden
+all_data <- readRDS("cleaned_survey_data.rds")
+
+# 2. Vorbereiten & Typen umwandeln (WICHTIG!)
+regression_data <- all_data %>%
+  mutate(
+    # Wir zwingen R, diese Spalten als Zahlen zu behandeln
+    # (as.character stellt sicher, dass Faktoren korrekt umgewandelt werden)
+    Numerical_Infl_Exp_YR = as.numeric(as.character(Numerical_Infl_Exp_YR)),
+    Categorical_Infl_Exp_YR = as.numeric(as.character(Categorical_Infl_Exp_YR)),
+    age = as.numeric(as.character(age)),
+    
+    time_decimal = year + (quarter - 1) / 4,
+    time_factor = factor(time_decimal),
+    
+    age_group = case_when(
+      age < 40 ~ "Young",
+      age >= 40 & age <= 60 ~ "Middle",
+      age > 60 ~ "Old",
+      TRUE ~ "Unknown"
+    )
+  )
+
+# 3. Aggregieren (Jetzt sollte mean() funktionieren!)
+cohort_data <- regression_data %>%
+  group_by(time_decimal, time_factor, age_group) %>%
+  summarise(
+    p_up = mean(Categorical_Infl_Exp_YR %in% c(1, 2), na.rm = TRUE),
+    p_down = mean(Categorical_Infl_Exp_YR == 5, na.rm = TRUE),
+    pi_measured = mean(Numerical_Infl_Exp_YR, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 4. Training
+# Wir filtern NaNs und NAs raus
+training_data <- cohort_data %>% 
+  filter(!is.na(pi_measured)) %>%
+  mutate(time_factor = droplevels(time_factor))
+
+# Check: Jetzt sollten hier ca. 300-500 Zeilen stehen
+print(paste("Zeilen im Training-Set:", nrow(training_data)))
+
+if(nrow(training_data) > 10) {
+  model <- lm(pi_measured ~ p_up + p_down + time_factor, data = training_data)
+  
+  # 5. Imputation anwenden
+  b_up   <- coef(model)["p_up"]
+  b_down <- coef(model)["p_down"]
+  const  <- coef(model)["(Intercept)"]
+  
+  cohort_data <- cohort_data %>%
+    mutate(imputed_inflation = const + (b_up * p_up) + (b_down * p_down))
+  
+  print("Die Imputation ist fertig.")
+  head(cohort_data)
+} else {
+  print("Fehler")
+}
+```
+
+
+--> Irgendwas mit den Daten ist falsch
+```{r}
+library(zoo) # Für den gleitenden Durchschnitt
+
+# 1. Daten glätten (4-Quartals-Durchschnitt wie im Paper)
+plot_data_mn <- cohort_data %>%
+    filter(age_group != "Unknown") %>%
+    arrange(age_group, time_decimal) %>%
+    group_by(age_group) %>%
+    mutate(
+        # Wir berechnen einen gleitenden Durchschnitt über 4 Quartale
+        smoothed_inflation = rollmean(imputed_inflation, k = 4, fill = NA, align = "right")
+    ) %>%
+    ungroup()
+
+# 2. Grafik im M&N Stil
+ggplot(plot_data_mn, aes(x = time_decimal, y = smoothed_inflation, color = age_group)) +
+    # Die Linien (etwas dicker für den Look)
+    geom_line(size = 1.2) +
+    # Farbwahl: M&N nutzen oft Schwarz/Grau-Töne oder sehr kontrastreiche Farben
+    scale_color_manual(values = c("Young" = "#E41A1C", "Middle" = "#377EB8", "Old" = "#4DAF4A")) +
+    # Achsen-Design wie im Wirtschaftsjournal
+    scale_x_continuous(breaks = seq(1950, 2025, 10), expand = c(0,0)) +
+    scale_y_continuous(labels = function(x) paste0(x, "%")) +
+    labs(
+        title = "Figure 1: Mean Inflation Expectations by Age Group",
+        subtitle = "4-quarter moving average of imputed expectations",
+        x = "Year",
+        y = "Expected Inflation",
+        color = "Cohort"
+    ) +
+    # Professionelles "White-Grid" Theme
+    theme_bw() +
+    theme(
+        panel.grid.minor = element_blank(),
+        legend.position = "bottom",
+        text = element_text(family = "serif"), # Serifenschrift für den Paper-Look
+        plot.title = element_text(face = "bold", size = 14)
+    )
+```
+
+
